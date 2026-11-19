@@ -1,4 +1,5 @@
 -- Run once in a NEW Supabase project. No existing project is modified automatically.
+-- Then apply SQL files in supabase/migrations in date order for newer safeguards.
 begin;
 create table public.households (
  id uuid primary key default gen_random_uuid(),

@@ -1,63 +1,36 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
-import {
-  initial,
-  groups,
-  money,
-  today,
-  uid,
-  cents,
-  schedule,
-  balance,
-  invoices,
-  validate,
-  upgradeData,
-  type Data,
-  type Entry,
-  type Account,
-  type Group,
-} from "./domain";
-import { AccountForm } from "./components/AccountForm";
-import { EntryForm } from "./components/EntryForm";
+import { initial, validate, upgradeData, type Data } from "./domain";
+import { FinanceHome } from "./FinanceHome";
 import "./App.css";
 
 const STORAGE = "mbfinancas.v1";
-function localData() {
+function readLocalData(): { data: Data; error: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE);
-    return raw
-      ? upgradeData(validate(JSON.parse(raw)))
-      : structuredClone(initial);
+    return {
+      data: raw
+        ? upgradeData(validate(JSON.parse(raw)))
+        : structuredClone(initial),
+      error: false,
+    };
   } catch {
-    return null;
+    return { data: structuredClone(initial), error: true };
   }
 }
-const navigation = [
-  { page: "Visão geral", label: "Resumo", icon: "◈" },
-  { page: "Movimentações", label: "Movimentações", icon: "↕" },
-  { page: "Contas e cartões", label: "Contas", icon: "▣" },
-  { page: "Mais", label: "Mais", icon: "•••" },
-];
-const secondaryPages = new Set(["Faturas", "Orçamento", "Configurações"]);
-const field = (f: FormData, k: string) => String(f.get(k) ?? "");
+const field = (form: FormData, name: string) => String(form.get(name) ?? "");
+
 function App() {
-  const [data, setData] = useState<Data>(
-    () => localData() ?? structuredClone(initial),
-  );
-  const [storageError, setStorageError] = useState(() => !localData());
-  const [page, setPage] = useState("Visão geral");
-  const [month, setMonth] = useState(today().slice(0, 7));
+  const [local] = useState(readLocalData);
+  const [data, setData] = useState<Data>(local.data);
+  const [storageError, setStorageError] = useState(local.error);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(!!supabase);
   const [revision, setRevision] = useState(0);
   const [household, setHousehold] = useState("");
-  const [editing, setEditing] = useState<Entry | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [search, setSearch] = useState("");
   const [authMode, setAuthMode] = useState<
     "login" | "signup" | "reset" | "password"
   >("login");
@@ -84,6 +57,7 @@ function App() {
       listener.subscription.unsubscribe();
     };
   }, []);
+
   useEffect(() => {
     if (!supabase || !session) return;
     const client = supabase;
@@ -108,9 +82,9 @@ function App() {
           setHousehold(row.id);
           setLoadError(false);
         }
-      } catch (e) {
+      } catch (error) {
         if (active) {
-          setMessage((e as Error).message);
+          setMessage((error as Error).message);
           setLoadError(true);
         }
       } finally {
@@ -122,6 +96,7 @@ function App() {
       active = false;
     };
   }, [session]);
+
   useEffect(() => {
     if (!supabase || !household || busy) return;
     const client = supabase;
@@ -141,7 +116,7 @@ function App() {
         try {
           setData(upgradeData(validate(row.data)));
           setRevision(row.version);
-          setMessage("Os dados compartilhados foram atualizados.");
+          setMessage("Os dados da casa foram atualizados.");
         } catch {
           setMessage("Os dados da nuvem são incompatíveis.");
         }
@@ -155,12 +130,13 @@ function App() {
       window.removeEventListener("focus", refresh);
     };
   }, [household, revision, busy]);
+
   useEffect(() => {
     if (supabase) return;
-    const handler = (e: StorageEvent) => {
-      if (e.key === STORAGE && e.newValue) {
+    const handler = (event: StorageEvent) => {
+      if (event.key === STORAGE && event.newValue) {
         try {
-          setData(upgradeData(validate(JSON.parse(e.newValue))));
+          setData(upgradeData(validate(JSON.parse(event.newValue))));
         } catch {
           setMessage("Outra aba gravou dados inválidos.");
         }
@@ -178,7 +154,7 @@ function App() {
       if (supabase) {
         if (!household)
           throw new Error("A casa compartilhada ainda não foi carregada.");
-        const { data: v, error } = await supabase.rpc("save_household", {
+        const { data: version, error } = await supabase.rpc("save_household", {
           p_id: household,
           p_version: revision,
           p_data: normalized,
@@ -199,7 +175,7 @@ function App() {
           }
           throw error;
         }
-        setRevision(v);
+        setRevision(version);
       } else {
         if (storageError)
           throw new Error(
@@ -209,22 +185,54 @@ function App() {
       }
       setData(normalized);
       return true;
-    } catch (e) {
-      setMessage("Não foi possível salvar: " + (e as Error).message);
+    } catch (error) {
+      setMessage("Não foi possível salvar: " + (error as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
   }
-  async function auth(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+
+  async function restore(next: Data) {
+    if (storageError && !supabase) {
+      try {
+        const normalized = upgradeData(validate(next));
+        localStorage.setItem(STORAGE, JSON.stringify(normalized));
+        setData(normalized);
+        setStorageError(false);
+        setMessage("Cópia de segurança restaurada.");
+        return true;
+      } catch (error) {
+        setMessage("Não foi possível restaurar: " + (error as Error).message);
+        return false;
+      }
+    }
+    return save(next);
+  }
+
+  async function inviteMember(email: string) {
+    if (!supabase || !household)
+      throw new Error("A casa compartilhada ainda não foi carregada.");
+    setBusy(true);
+    try {
+      const { error } = await supabase.functions.invoke("invite-member", {
+        body: { email, householdId: household },
+      });
+      if (error) throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function auth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!supabase) return;
-    const f = new FormData(e.currentTarget);
+    const values = new FormData(event.currentTarget);
     setBusy(true);
     setMessage("");
     try {
-      const email = field(f, "email");
-      const password = field(f, "password");
+      const email = field(values, "email");
+      const password = field(values, "password");
       if (authMode === "signup") {
         const { error } = await supabase.auth.signUp({
           email,
@@ -258,223 +266,12 @@ function App() {
         });
         if (error) throw error;
       }
-    } catch (e) {
-      setMessage((e as Error).message);
+    } catch (error) {
+      setMessage((error as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  function openEntry(e?: Entry) {
-    setEditing(e ?? null);
-    setFormOpen(true);
-    setPage("Movimentações");
-    setMessage("");
-  }
-  async function submitEntry(
-    e: FormEvent<HTMLFormElement>,
-    type: Entry["type"],
-    account: string,
-  ) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    try {
-      if (
-        editing &&
-        JSON.stringify(
-          data.entries.find((entry) => entry.id === editing.id),
-        ) !== JSON.stringify(editing)
-      )
-        throw new Error(
-          "Esta movimentação mudou em outra tela. Feche e abra novamente para editar a versão atual.",
-        );
-      const a = data.accounts.find((a) => a.id === account);
-      if (!a) throw new Error("Cadastre uma conta antes do lançamento.");
-      const amount = cents(field(f, "amount"));
-      if (!amount) throw new Error("O valor deve ser maior que zero.");
-      const date = field(f, "date");
-      if (date > today())
-        throw new Error(
-          "Registre compras e recebimentos realizados. As parcelas futuras são calculadas automaticamente.",
-        );
-      const count =
-        type === "expense" && a.type === "card"
-          ? Number(field(f, "installments"))
-          : 1;
-      const originalSame =
-        editing &&
-        editing.account === account &&
-        editing.amount === amount &&
-        editing.date === date &&
-        editing.installments === count;
-      const entry: Entry = {
-        id: editing?.id ?? uid(),
-        type,
-        amount,
-        date,
-        account,
-        destination: field(f, "destination"),
-        category: field(f, "category"),
-        description: field(f, "description").trim(),
-        installments: count,
-        invoice: "",
-        schedule:
-          type === "expense" && a.type === "card"
-            ? originalSame
-              ? editing.schedule
-              : schedule(amount, count, date, a)
-            : [],
-      };
-      if (
-        editing &&
-        invoices(data).some(
-          (i) =>
-            i.paid > 0 &&
-            editing.schedule.some(
-              (p) => i.key === editing.account + "|" + p.date,
-            ),
-        )
-      )
-        throw new Error(
-          "Remova primeiro os pagamentos das faturas vinculadas para alterar esta compra.",
-        );
-      if (
-        await save({
-          ...data,
-          entries: [...data.entries.filter((x) => x.id !== entry.id), entry],
-        })
-      ) {
-        setFormOpen(false);
-        setEditing(null);
-      }
-    } catch (e) {
-      setMessage((e as Error).message);
-    }
-  }
-  async function removeEntry(e: Entry) {
-    if (
-      invoices(data).some(
-        (i) =>
-          i.paid > 0 &&
-          e.schedule.some((p) => i.key === e.account + "|" + p.date),
-      )
-    ) {
-      setMessage("Exclua primeiro os pagamentos vinculados a essa compra.");
-      return;
-    }
-    if (confirm("Excluir este lançamento?"))
-      await save({
-        ...data,
-        entries: data.entries.filter((x) => x.id !== e.id),
-      });
-  }
-  async function saveAccount(account: Account) {
-    if (
-      editingAccount &&
-      !data.accounts.some((item) => item.id === editingAccount.id)
-    ) {
-      setMessage("Esta conta foi removida por outra pessoa.");
-      return false;
-    }
-    if (
-      editingAccount &&
-      JSON.stringify(
-        data.accounts.find((item) => item.id === editingAccount.id),
-      ) !== JSON.stringify(editingAccount)
-    ) {
-      setMessage(
-        "Esta conta mudou em outra tela. Feche e abra novamente para editar a versão atual.",
-      );
-      return false;
-    }
-    const duplicateName = data.accounts.some(
-      (item) =>
-        item.id !== account.id &&
-        item.name.trim().toLocaleLowerCase("pt-BR") ===
-          account.name.trim().toLocaleLowerCase("pt-BR"),
-    );
-    if (duplicateName) {
-      setMessage("Já existe uma conta ou cartão com esse nome.");
-      return false;
-    }
-    const accounts = editingAccount
-      ? data.accounts.map((item) => (item.id === account.id ? account : item))
-      : [...data.accounts, account];
-    const saved = await save({ ...data, accounts });
-    if (saved) setEditingAccount(null);
-    return saved;
-  }
-  async function payInvoice(e: FormEvent<HTMLFormElement>, key: string) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const invoice = invoices(data).find((i) => i.key === key);
-    if (!invoice) {
-      setMessage(
-        "Esta fatura foi atualizada. Confira os dados e tente novamente.",
-      );
-      return;
-    }
-    try {
-      const amount = cents(field(f, "amount"));
-      if (amount <= 0) throw new Error("Informe um valor maior que zero.");
-      if (amount > invoice.total - invoice.paid)
-        throw new Error("O pagamento excede o saldo da fatura.");
-      const entry: Entry = {
-        id: uid(),
-        type: "transfer",
-        amount,
-        date: field(f, "date"),
-        account: field(f, "source"),
-        destination: invoice.card.id,
-        category: "",
-        description: "Pagamento de fatura • " + invoice.card.name,
-        invoice: key,
-        installments: 1,
-        schedule: [],
-      };
-      if (entry.date > today())
-        throw new Error("O pagamento deve ter uma data já ocorrida.");
-      await save({ ...data, entries: [...data.entries, entry] });
-    } catch (e) {
-      setMessage((e as Error).message);
-    }
-  }
-  function exportBackup() {
-    const raw =
-      storageError && !supabase
-        ? (localStorage.getItem(STORAGE) ?? "")
-        : JSON.stringify(data, null, 2);
-    const url = URL.createObjectURL(
-      new Blob([raw], { type: "application/json" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "mb-financas-" + today() + ".json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-  const monthly = data.entries.filter((e) => e.date.startsWith(month));
-  const expenses = monthly
-    .filter((e) => e.type === "expense")
-    .reduce((n, e) => n + e.amount, 0);
-  const income = monthly
-    .filter((e) => e.type === "income")
-    .reduce((n, e) => n + e.amount, 0);
-  const bills = invoices(data);
-  const monthBills = bills.filter((i) => i.date.startsWith(month));
-  const available = data.accounts
-    .filter((a) => a.type !== "card")
-    .reduce((n, a) => n + balance(data, a), 0);
-  const filtered = monthly
-    .filter((e) =>
-      (
-        e.description +
-        " " +
-        data.categories.find((c) => c.id === e.category)?.name
-      )
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-    )
-    .sort((a, b) => b.date.localeCompare(a.date));
 
   if (loading)
     return (
@@ -570,790 +367,19 @@ function App() {
     );
 
   return (
-    <div className="shell">
-      <aside>
-        <a
-          className="brand"
-          href="#inicio"
-          onClick={() => setPage("Visão geral")}
-        >
-          mb<span>Finanças da casa</span>
-        </a>
-        <p className="eyebrow">NOSSO ESPAÇO</p>
-        <nav>
-          {navigation.map((item) => (
-            <button
-              key={item.page}
-              className={
-                (secondaryPages.has(page) ? "Mais" : page) === item.page
-                  ? "active"
-                  : ""
-              }
-              onClick={() => setPage(item.page)}
-            >
-              <span aria-hidden="true">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <strong>Orçamento do casal</strong>
-          <small>
-            {supabase ? "Conta compartilhada" : "Salvo neste navegador"}
-          </small>
-          {supabase && (
-            <button
-              className="ghost"
-              onClick={() => void supabase!.auth.signOut()}
-            >
-              Sair da conta
-            </button>
-          )}
-        </div>
-      </aside>
-      <main id="inicio">
-        <header>
-          <span className="eyebrow">MB FINANÇAS / {page.toUpperCase()}</span>
-          <label className="month">
-            Período
-            <input
-              aria-label="Mês de referência"
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value || today().slice(0, 7))}
-            />
-          </label>
-        </header>
-        {!supabase && (
-          <div className="local-note">
-            Uso local · Os dados ficam neste navegador. Para compartilhar entre
-            dispositivos, configure a nuvem.{" "}
-            <button
-              className="text-button"
-              onClick={() => setPage("Configurações")}
-            >
-              Ver opções
-            </button>
-          </div>
-        )}
-        {message && (
-          <div role="status" className="notice">
-            {message}
-            <button aria-label="Fechar mensagem" onClick={() => setMessage("")}>
-              ×
-            </button>
-          </div>
-        )}
-        {storageError && !supabase && (
-          <div role="alert" className="notice">
-            Não conseguimos ler o arquivo salvo. Exporte o original em
-            Configurações para recuperá-lo. O salvamento está bloqueado para
-            preservar os dados.
-          </div>
-        )}
-        <div className="heading">
-          <div>
-            <h1>{page}</h1>
-          </div>
-          <button
-            onClick={() =>
-              data.accounts.length ? openEntry() : setPage("Contas e cartões")
-            }
-            disabled={busy}
-          >
-            {data.accounts.length ? "+ Nova movimentação" : "+ Cadastrar conta"}
-          </button>
-        </div>
-        <fieldset disabled={busy} className="workspace">
-          {page === "Visão geral" && (
-            <>
-              <section className="metrics">
-                <article className="metric featured">
-                  <span>Saldo em contas</span>
-                  <strong>{money(available)}</strong>
-                  <small>Saldo inicial + movimentações registradas</small>
-                </article>
-                <article className="metric">
-                  <span>Receitas no mês</span>
-                  <strong>{money(income)}</strong>
-                  <small>Valores recebidos</small>
-                </article>
-                <article className="metric">
-                  <span>Gastos no mês</span>
-                  <strong>{money(expenses)}</strong>
-                  <small>Compras integrais, incluindo cartão</small>
-                </article>
-                <article className="metric">
-                  <span>Faturas a pagar no período</span>
-                  <strong>
-                    {money(
-                      monthBills.reduce(
-                        (s, i) => s + Math.max(0, i.total - i.paid),
-                        0,
-                      ),
-                    )}
-                  </strong>
-                  <small>Compromissos de pagamento</small>
-                </article>
-              </section>
-              <section className="columns">
-                <article className="panel">
-                  <div className="section-title">
-                    <h2>Orçamento</h2>
-                    <button
-                      className="text-button"
-                      onClick={() => setPage("Orçamento")}
-                    >
-                      Editar
-                    </button>
-                  </div>
-                  {data.income === 0 ? (
-                    <div className="empty">—</div>
-                  ) : (
-                    Object.entries(groups).map(([key, g]) => {
-                      const spent = monthly
-                        .filter(
-                          (e) =>
-                            e.type === "expense" &&
-                            data.categories.find((c) => c.id === e.category)
-                              ?.group === key,
-                        )
-                        .reduce((s, e) => s + e.amount, 0);
-                      const target = Math.round(data.income * g.ratio);
-                      const ratio = target ? spent / target : 0;
-                      return (
-                        <div className="budget" key={key}>
-                          <div>
-                            <strong>{g.label}</strong>
-                            <span>
-                              {money(spent)} / {money(target)}
-                            </span>
-                          </div>
-                          <progress
-                            className={
-                              ratio > 1
-                                ? "danger"
-                                : ratio >= 0.8
-                                  ? "warning"
-                                  : ""
-                            }
-                            value={Math.min(ratio, 1)}
-                            max="1"
-                          />
-                          <small>
-                            {ratio > 1
-                              ? "Acima da referência mensal"
-                              : ratio >= 0.8
-                                ? "Atenção: perto da referência mensal"
-                                : "Dentro da referência"}{" "}
-                            · {Math.round(ratio * 100)}%
-                          </small>
-                        </div>
-                      );
-                    })
-                  )}
-                </article>
-                <article className="panel">
-                  <h2>Próximas faturas</h2>
-                  <p className="muted">
-                    Não somamos estas parcelas novamente aos gastos.
-                  </p>
-                  {bills
-                    .filter((i) => i.total > i.paid)
-                    .slice(0, 5)
-                    .map((i) => (
-                      <div className="row" key={i.key}>
-                        <div>
-                          <strong>{i.card.name}</strong>
-                          <small>
-                            Vence em {i.date.split("-").reverse().join("/")}
-                          </small>
-                        </div>
-                        <strong>{money(i.total - i.paid)}</strong>
-                      </div>
-                    ))}
-                  {!bills.some((i) => i.total > i.paid) && (
-                    <div className="empty">Nenhuma fatura pendente.</div>
-                  )}
-                  <button className="ghost" onClick={() => setPage("Faturas")}>
-                    Ver todas as faturas
-                  </button>
-                </article>
-              </section>
-            </>
-          )}
-          {page === "Movimentações" && (
-            <>
-              {formOpen && (
-                <EntryForm
-                  key={editing?.id ?? "new-entry"}
-                  data={data}
-                  editing={editing}
-                  onSubmit={(event, type, account) =>
-                    void submitEntry(event, type, account)
-                  }
-                  onCancel={() => {
-                    setFormOpen(false);
-                    setEditing(null);
-                  }}
-                />
-              )}
-              <section className="panel">
-                <label>
-                  Buscar descrição ou categoria
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar movimentações…"
-                  />
-                </label>
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Data / descrição</th>
-                        <th>Conta</th>
-                        <th>Tipo de gasto</th>
-                        <th>Valor</th>
-                        <th>Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((e) => (
-                        <tr key={e.id}>
-                          <td>
-                            <strong>
-                              {e.description ||
-                                {
-                                  income: "Receita",
-                                  expense: "Despesa",
-                                  transfer: "Transferência",
-                                }[e.type]}
-                            </strong>
-                            <small>
-                              {e.date.split("-").reverse().join("/")}
-                              {e.installments > 1
-                                ? " · " + e.installments + " parcelas"
-                                : ""}
-                            </small>
-                          </td>
-                          <td>
-                            {
-                              data.accounts.find((a) => a.id === e.account)
-                                ?.name
-                            }
-                          </td>
-                          <td>
-                            {data.categories.find((c) => c.id === e.category)
-                              ?.name ?? "—"}
-                          </td>
-                          <td className={e.type === "income" ? "positive" : ""}>
-                            {e.type === "income"
-                              ? "+"
-                              : e.type === "expense"
-                                ? "−"
-                                : "↔"}{" "}
-                            {money(e.amount)}
-                          </td>
-                          <td>
-                            <div className="actions">
-                              {!e.invoice && (
-                                <button
-                                  className="ghost"
-                                  onClick={() => openEntry(e)}
-                                >
-                                  Editar
-                                </button>
-                              )}
-                              <button
-                                className="ghost destructive"
-                                onClick={() => void removeEntry(e)}
-                              >
-                                Excluir
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {!filtered.length && (
-                  <div className="empty">
-                    Nenhuma movimentação neste período.
-                  </div>
-                )}
-              </section>
-            </>
-          )}
-          {page === "Mais" && (
-            <section className="more-grid">
-              <button className="more-card" onClick={() => setPage("Faturas")}>
-                <span aria-hidden="true">▤</span>
-                <strong>Faturas</strong>
-              </button>
-              <button
-                className="more-card"
-                onClick={() => setPage("Orçamento")}
-              >
-                <span aria-hidden="true">◷</span>
-                <strong>Orçamento</strong>
-              </button>
-              <button
-                className="more-card"
-                onClick={() => setPage("Configurações")}
-              >
-                <span aria-hidden="true">⚙</span>
-                <strong>Configurações</strong>
-              </button>
-            </section>
-          )}
-          {page === "Contas e cartões" && (
-            <>
-              <section className="account-grid">
-                {data.accounts.map((a) => (
-                  <article className="panel" key={a.id}>
-                    <span className="eyebrow">
-                      {a.type === "card"
-                        ? "CARTÃO DE CRÉDITO"
-                        : a.type === "cash"
-                          ? "DINHEIRO"
-                          : "CONTA BANCÁRIA"}
-                    </span>
-                    <h2>{a.name}</h2>
-                    <strong className="account-value">
-                      {money(
-                        a.type === "card"
-                          ? -balance(data, a)
-                          : balance(data, a),
-                      )}
-                    </strong>
-                    <small>
-                      {a.type === "card"
-                        ? "Fatura fecha dia " +
-                          a.closing +
-                          " · vence dia " +
-                          a.due
-                        : "Saldo atual"}
-                    </small>
-                    {a.type === "card" && (
-                      <button
-                        className="ghost"
-                        onClick={() => setPage("Faturas")}
-                      >
-                        Ver faturas
-                      </button>
-                    )}
-                    <button
-                      className="ghost"
-                      onClick={() => setEditingAccount(a)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      className="ghost destructive"
-                      onClick={() => {
-                        if (
-                          data.entries.some(
-                            (e) => e.account === a.id || e.destination === a.id,
-                          )
-                        ) {
-                          setMessage(
-                            "Esta conta tem movimentações vinculadas e não pode ser excluída.",
-                          );
-                          return;
-                        }
-                        if (confirm("Excluir conta?"))
-                          void save({
-                            ...data,
-                            accounts: data.accounts.filter(
-                              (x) => x.id !== a.id,
-                            ),
-                          });
-                      }}
-                    >
-                      Excluir conta
-                    </button>
-                  </article>
-                ))}
-              </section>
-              <AccountForm
-                key={editingAccount?.id ?? "new-account"}
-                account={editingAccount ?? undefined}
-                typeLocked={
-                  !!editingAccount &&
-                  data.entries.some(
-                    (entry) =>
-                      entry.account === editingAccount.id ||
-                      entry.destination === editingAccount.id,
-                  )
-                }
-                onSave={saveAccount}
-                onError={setMessage}
-                onCancel={() => setEditingAccount(null)}
-              />
-            </>
-          )}
-          {page === "Faturas" && (
-            <>
-              <p className="muted">
-                Faturas com vencimento no mês selecionado. O gasto total da
-                compra aparece na data da compra.
-              </p>
-              {monthBills.map((i) => (
-                <article className="panel" key={i.key}>
-                  <div className="section-title">
-                    <div>
-                      <h2>{i.card.name}</h2>
-                      <small>
-                        Vencimento: {i.date.split("-").reverse().join("/")}
-                      </small>
-                    </div>
-                    <span
-                      className={"badge " + (i.paid >= i.total ? "paid" : "")}
-                    >
-                      {i.paid >= i.total
-                        ? "Paga"
-                        : i.date < today()
-                          ? "Vencida"
-                          : "A pagar"}
-                    </span>
-                  </div>
-                  <div className="invoice-numbers">
-                    <p>
-                      Total <strong>{money(i.total)}</strong>
-                    </p>
-                    <p>
-                      Pago <strong>{money(i.paid)}</strong>
-                    </p>
-                    <p>
-                      Restante{" "}
-                      <strong>{money(Math.max(0, i.total - i.paid))}</strong>
-                    </p>
-                  </div>
-                  {data.entries
-                    .filter(
-                      (e) =>
-                        e.account === i.card.id &&
-                        e.schedule.some((p) => p.date === i.date),
-                    )
-                    .map((e) => (
-                      <div className="row" key={e.id}>
-                        <span>
-                          {e.description ||
-                            data.categories.find((c) => c.id === e.category)
-                              ?.name}{" "}
-                          <small>
-                            Parcela{" "}
-                            {e.schedule.findIndex((p) => p.date === i.date) + 1}
-                            /{e.installments}
-                          </small>
-                        </span>
-                        <strong>
-                          {money(
-                            e.schedule.find((p) => p.date === i.date)!.amount,
-                          )}
-                        </strong>
-                      </div>
-                    ))}
-                  {i.paid < i.total && (
-                    <form
-                      className="grid-form"
-                      onSubmit={(e) => void payInvoice(e, i.key)}
-                    >
-                      <label>
-                        Pagar com
-                        <select name="source" required>
-                          <option value="">Selecione a conta</option>
-                          {data.accounts
-                            .filter((a) => a.type !== "card")
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      <label>
-                        Valor (R$)
-                        <input
-                          key={i.paid}
-                          name="amount"
-                          required
-                          type="number"
-                          min=".01"
-                          step=".01"
-                          max={(i.total - i.paid) / 100}
-                          defaultValue={(i.total - i.paid) / 100}
-                        />
-                      </label>
-                      <label>
-                        Data do pagamento
-                        <input
-                          name="date"
-                          type="date"
-                          required
-                          max={today()}
-                          defaultValue={today()}
-                        />
-                      </label>
-                      <div className="form-actions">
-                        <button>Registrar pagamento</button>
-                      </div>
-                    </form>
-                  )}
-                </article>
-              ))}
-              {!monthBills.length && (
-                <section className="panel empty">
-                  Nenhuma fatura prevista para este mês. Selecione outro período
-                  ou registre uma compra no cartão.
-                </section>
-              )}
-            </>
-          )}
-          {page === "Orçamento" && (
-            <>
-              <section className="panel">
-                <h2>Renda mensal prevista</h2>
-                <form
-                  className="inline-form"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      await save({
-                        ...data,
-                        income: cents(
-                          field(new FormData(e.currentTarget), "income"),
-                        ),
-                      });
-                    } catch (e) {
-                      setMessage((e as Error).message);
-                    }
-                  }}
-                >
-                  <label>
-                    Valor mensal (R$)
-                    <input
-                      name="income"
-                      required
-                      type="number"
-                      step=".01"
-                      min="0"
-                      defaultValue={data.income / 100}
-                      key={data.income}
-                    />
-                  </label>
-                  <button>Salvar renda</button>
-                </form>
-                <div className="metrics">
-                  {Object.entries(groups).map(([key, g]) => (
-                    <article className="metric" key={key}>
-                      <span>
-                        {g.ratio * 100}% · {g.label}
-                      </span>
-                      <strong>
-                        {money(Math.round(data.income * g.ratio))}
-                      </strong>
-                    </article>
-                  ))}
-                </div>
-              </section>
-              <section className="panel">
-                <h2>Categorias do casal</h2>
-                {data.categories.map((c) => (
-                  <div className="row" key={c.id}>
-                    <span>
-                      <strong>{c.name}</strong>
-                      <small>{groups[c.group].label}</small>
-                    </span>
-                    <button
-                      className="ghost destructive"
-                      onClick={() => {
-                        if (data.entries.some((e) => e.category === c.id)) {
-                          setMessage(
-                            "Este tipo de gasto já aparece em movimentações e não pode ser excluído.",
-                          );
-                          return;
-                        }
-                        void save({
-                          ...data,
-                          categories: data.categories.filter(
-                            (x) => x.id !== c.id,
-                          ),
-                        });
-                      }}
-                    >
-                      Excluir
-                    </button>
-                  </div>
-                ))}
-                <form
-                  className="grid-form"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const form = e.currentTarget;
-                    const f = new FormData(form);
-                    const name = field(f, "name").trim();
-                    const group = field(f, "group") as Group;
-                    if (!name) {
-                      setMessage("Informe o nome do tipo de gasto.");
-                      return;
-                    }
-                    if (
-                      data.categories.some(
-                        (category) =>
-                          category.name.trim().toLocaleLowerCase("pt-BR") ===
-                          name.toLocaleLowerCase("pt-BR"),
-                      )
-                    ) {
-                      setMessage("Esse tipo de gasto já existe.");
-                      return;
-                    }
-                    if (
-                      await save({
-                        ...data,
-                        categories: [
-                          ...data.categories,
-                          { id: uid(), name, group },
-                        ],
-                      })
-                    )
-                      form.reset();
-                  }}
-                >
-                  <label>
-                    Nova categoria
-                    <input name="name" required maxLength={60} />
-                  </label>
-                  <label>
-                    Grupo
-                    <select name="group">
-                      {Object.entries(groups).map(([key, g]) => (
-                        <option value={key} key={key}>
-                          {g.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="form-actions">
-                    <button>Adicionar categoria</button>
-                  </div>
-                </form>
-              </section>
-            </>
-          )}
-          {page === "Configurações" && (
-            <>
-              <section className="panel">
-                <h2>
-                  {supabase
-                    ? "Casa compartilhada"
-                    : "Seus dados neste navegador"}
-                </h2>
-                <p>
-                  {supabase
-                    ? "As alterações são atualizadas entre os membros da casa."
-                    : "O app funciona localmente. Exporte cópias de segurança: limpar os dados do navegador também remove seus registros."}
-                </p>
-                {supabase ? (
-                  <form
-                    className="inline-form"
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      setBusy(true);
-                      try {
-                        const { error } = await supabase!.functions.invoke(
-                          "invite-member",
-                          {
-                            body: {
-                              email: field(
-                                new FormData(e.currentTarget),
-                                "email",
-                              ),
-                              householdId: household,
-                            },
-                          },
-                        );
-                        if (error) throw error;
-                        setMessage("Convite enviado por e-mail.");
-                      } catch (e) {
-                        setMessage(
-                          "Não foi possível enviar: " + (e as Error).message,
-                        );
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    <label>
-                      E-mail da pessoa convidada
-                      <input name="email" type="email" required />
-                    </label>
-                    <button>Enviar convite</button>
-                  </form>
-                ) : (
-                  <p className="muted">
-                    Para ativar login e compartilhamento, siga as instruções em
-                    README.md e configure o projeto Supabase próprio do MB
-                    Finanças.
-                  </p>
-                )}
-              </section>
-              <section className="panel">
-                <h2>Cópias de segurança</h2>
-                <p>
-                  O arquivo contém suas informações financeiras. Guarde-o em um
-                  lugar privado.
-                </p>
-                <div className="actions">
-                  <button onClick={exportBackup}>Exportar dados</button>
-                  <label className="file-input">
-                    Restaurar arquivo
-                    <input
-                      type="file"
-                      accept="application/json,.json"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          if (file.size > 5_000_000)
-                            throw new Error("Arquivo muito grande.");
-                          const next = upgradeData(
-                            validate(JSON.parse(await file.text())),
-                          );
-                          if (
-                            confirm(
-                              "Substituir todos os dados atuais pelos dados deste arquivo?",
-                            )
-                          ) {
-                            if (storageError && !supabase) {
-                              localStorage.setItem(
-                                STORAGE,
-                                JSON.stringify(next),
-                              );
-                              setData(next);
-                              setStorageError(false);
-                            } else await save(next);
-                          }
-                        } catch (e) {
-                          setMessage((e as Error).message);
-                        }
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-              </section>
-            </>
-          )}
-        </fieldset>
-        <footer>
-          MB Finanças · Construindo tranquilidade, juntos.
-          {busy ? " Salvando…" : ""}
-        </footer>
-      </main>
-    </div>
+    <FinanceHome
+      data={data}
+      save={save}
+      restore={restore}
+      busy={busy}
+      message={message}
+      setMessage={setMessage}
+      shared={!!supabase}
+      storageError={storageError}
+      onInvite={supabase ? inviteMember : undefined}
+      onSignOut={supabase ? () => void supabase!.auth.signOut() : undefined}
+    />
   );
 }
+
 export default App;

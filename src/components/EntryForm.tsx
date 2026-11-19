@@ -4,6 +4,8 @@ import { today, type Data, type Entry } from "../domain";
 type EntryFormProps = {
   data: Data;
   editing?: Entry | null;
+  fixedType?: Entry["type"];
+  cardOnly?: boolean;
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
     type: Entry["type"],
@@ -21,25 +23,39 @@ const entryTypes: { value: Entry["type"]; label: string }[] = [
 export function EntryForm({
   data,
   editing,
+  fixedType,
+  cardOnly = false,
   onSubmit,
   onCancel,
 }: EntryFormProps) {
-  const [type, setType] = useState<Entry["type"]>(editing?.type ?? "expense");
+  const [type, setType] = useState<Entry["type"]>(
+    fixedType ?? editing?.type ?? "expense",
+  );
   const [account, setAccount] = useState(
     () =>
       editing?.account ??
-      data.accounts.find((item) => item.type !== "card")?.id ??
+      data.accounts.find((item) =>
+        cardOnly ? item.type === "card" : item.type !== "card",
+      )?.id ??
       data.accounts[0]?.id ??
       "",
   );
-  const availableAccounts = data.accounts.filter(
-    (item) => type === "expense" || item.type !== "card",
+  const availableAccounts = data.accounts.filter((item) =>
+    cardOnly
+      ? item.type === "card"
+      : type === "expense" || item.type !== "card",
   );
+  const ordinaryAccounts = data.accounts.filter((item) => item.type !== "card");
+  const canSubmit =
+    availableAccounts.length > 0 &&
+    (type !== "transfer" || ordinaryAccounts.length > 1);
 
   function changeType(nextType: Entry["type"]) {
     setType(nextType);
     setAccount(
-      data.accounts.find((item) => item.type !== "card")?.id ??
+      data.accounts.find((item) =>
+        cardOnly ? item.type === "card" : item.type !== "card",
+      )?.id ??
         data.accounts[0]?.id ??
         "",
     );
@@ -53,27 +69,38 @@ export function EntryForm({
           Fechar
         </button>
       </div>
+      {!canSubmit && (
+        <p role="note" className="muted form-hint">
+          {type === "transfer"
+            ? "Adicione outra conta bancária ou dinheiro para transferir entre contas."
+            : cardOnly
+              ? "Cadastre um cartão antes de lançar uma compra no cartão."
+              : "Cadastre uma conta bancária ou dinheiro antes de continuar."}
+        </p>
+      )}
       <form
         className="grid-form"
         onSubmit={(event) => onSubmit(event, type, account)}
         key={editing?.id ?? "new-entry"}
       >
-        <fieldset className="entry-type-choice">
-          <legend>O que aconteceu?</legend>
-          <div className="choice-buttons">
-            {entryTypes.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                className={type === item.value ? "choice active" : "choice"}
-                aria-pressed={type === item.value}
-                onClick={() => changeType(item.value)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        {!fixedType && (
+          <fieldset className="entry-type-choice">
+            <legend>O que aconteceu?</legend>
+            <div className="choice-buttons">
+              {entryTypes.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  className={type === item.value ? "choice active" : "choice"}
+                  aria-pressed={type === item.value}
+                  onClick={() => changeType(item.value)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <label>
           Valor (R$)
           <input
@@ -175,7 +202,7 @@ export function EntryForm({
           />
         </label>
         <div className="form-actions">
-          <button>
+          <button disabled={!canSubmit}>
             {editing ? "Salvar alterações" : "Salvar movimentação"}
           </button>
         </div>

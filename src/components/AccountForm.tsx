@@ -3,6 +3,8 @@ import { cents, uid, type Account } from "../domain";
 
 type AccountFormProps = {
   account?: Account;
+  accountType?: Account["type"];
+  allowCash?: boolean;
   typeLocked?: boolean;
   onSave: (account: Account) => Promise<boolean>;
   onCancel?: () => void;
@@ -17,12 +19,16 @@ const accountTypeNames: Record<Account["type"], string> = {
 
 export function AccountForm({
   account,
+  accountType,
+  allowCash = false,
   typeLocked = false,
   onSave,
   onCancel,
   onError,
 }: AccountFormProps) {
-  const [type, setType] = useState<Account["type"]>(account?.type ?? "bank");
+  const [type, setType] = useState<Account["type"]>(
+    account?.type ?? accountType ?? "bank",
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,21 +102,26 @@ export function AccountForm({
             defaultValue={account?.name}
           />
         </label>
-        <label>
-          Tipo
-          <select
-            name="type"
-            value={type}
-            disabled={typeLocked}
-            onChange={(event) => setType(event.target.value as Account["type"])}
-          >
-            {Object.entries(accountTypeNames).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!typeLocked && (
+          <label>
+            Tipo
+            <select
+              name="type"
+              value={type}
+              onChange={(event) =>
+                setType(event.target.value as Account["type"])
+              }
+            >
+              {Object.entries(accountTypeNames)
+                .filter(([value]) => (allowCash ? value !== "card" : true))
+                .map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         {type === "card" ? (
           <>
             <label>
@@ -138,7 +149,7 @@ export function AccountForm({
           </>
         ) : (
           <label>
-            Saldo ao começar (R$)
+            Saldo inicial (R$)
             <input
               name="opening"
               type="number"
