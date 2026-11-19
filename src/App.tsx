@@ -12,30 +12,34 @@ import {
   balance,
   invoices,
   validate,
+  upgradeData,
   type Data,
   type Entry,
   type Account,
   type Group,
 } from "./domain";
+import { AccountForm } from "./components/AccountForm";
+import { EntryForm } from "./components/EntryForm";
 import "./App.css";
 
 const STORAGE = "mbfinancas.v1";
 function localData() {
   try {
     const raw = localStorage.getItem(STORAGE);
-    return raw ? validate(JSON.parse(raw)) : structuredClone(initial);
+    return raw
+      ? upgradeData(validate(JSON.parse(raw)))
+      : structuredClone(initial);
   } catch {
     return null;
   }
 }
-const labels = [
-  "Visão geral",
-  "Movimentações",
-  "Contas e cartões",
-  "Faturas",
-  "Planejamento",
-  "Configurações",
+const navigation = [
+  { page: "Visão geral", label: "Resumo", icon: "◈" },
+  { page: "Movimentações", label: "Movimentações", icon: "↕" },
+  { page: "Contas e cartões", label: "Contas", icon: "▣" },
+  { page: "Mais", label: "Mais", icon: "•••" },
 ];
+const secondaryPages = new Set(["Faturas", "Orçamento", "Configurações"]);
 const field = (f: FormData, k: string) => String(f.get(k) ?? "");
 function App() {
   const [data, setData] = useState<Data>(
@@ -52,8 +56,7 @@ function App() {
   const [household, setHousehold] = useState("");
   const [editing, setEditing] = useState<Entry | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [type, setType] = useState<Entry["type"]>("expense");
-  const [account, setAccount] = useState("");
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [search, setSearch] = useState("");
   const [authMode, setAuthMode] = useState<
     "login" | "signup" | "reset" | "password"
@@ -100,7 +103,7 @@ function App() {
         });
         if (error) throw error;
         if (active) {
-          setData(validate(row.data));
+          setData(upgradeData(validate(row.data)));
           setRevision(row.version);
           setHousehold(row.id);
           setLoadError(false);
@@ -120,7 +123,7 @@ function App() {
     };
   }, [session]);
   useEffect(() => {
-    if (!supabase || !household || busy || formOpen) return;
+    if (!supabase || !household || busy) return;
     const client = supabase;
     let active = true;
     async function refresh() {
@@ -136,8 +139,9 @@ function App() {
         );
       if (active && row && row.version !== revision) {
         try {
-          setData(validate(row.data));
+          setData(upgradeData(validate(row.data)));
           setRevision(row.version);
+          setMessage("Os dados compartilhados foram atualizados.");
         } catch {
           setMessage("Os dados da nuvem são incompatíveis.");
         }
@@ -150,13 +154,13 @@ function App() {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [household, revision, busy, formOpen]);
+  }, [household, revision, busy]);
   useEffect(() => {
     if (supabase) return;
     const handler = (e: StorageEvent) => {
       if (e.key === STORAGE && e.newValue) {
         try {
-          setData(validate(JSON.parse(e.newValue)));
+          setData(upgradeData(validate(JSON.parse(e.newValue))));
         } catch {
           setMessage("Outra aba gravou dados inválidos.");
         }
@@ -170,25 +174,40 @@ function App() {
     setBusy(true);
     setMessage("");
     try {
-      validate(next);
+      const normalized = upgradeData(validate(next));
       if (supabase) {
         if (!household)
           throw new Error("A casa compartilhada ainda não foi carregada.");
         const { data: v, error } = await supabase.rpc("save_household", {
           p_id: household,
           p_version: revision,
-          p_data: next,
+          p_data: normalized,
         });
-        if (error) throw error;
+        if (error) {
+          const { data: latest, error: refreshError } = await supabase
+            .from("households")
+            .select("data,version")
+            .eq("id", household)
+            .single();
+          if (!refreshError && latest && latest.version !== revision) {
+            setData(upgradeData(validate(latest.data)));
+            setRevision(latest.version);
+            setMessage(
+              "Os dados foram atualizados por outra pessoa. Confira e salve novamente.",
+            );
+            return false;
+          }
+          throw error;
+        }
         setRevision(v);
       } else {
         if (storageError)
           throw new Error(
             "Há dados locais ilegíveis. Exporte o arquivo original antes de recuperar o armazenamento.",
           );
-        localStorage.setItem(STORAGE, JSON.stringify(next));
+        localStorage.setItem(STORAGE, JSON.stringify(normalized));
       }
-      setData(next);
+      setData(normalized);
       return true;
     } catch (e) {
       setMessage("Não foi possível salvar: " + (e as Error).message);
@@ -247,21 +266,27 @@ function App() {
   }
   function openEntry(e?: Entry) {
     setEditing(e ?? null);
-    setType(e?.type ?? "expense");
-    setAccount(
-      e?.account ??
-        data.accounts.find((a) => a.type !== "card")?.id ??
-        data.accounts[0]?.id ??
-        "",
-    );
     setFormOpen(true);
     setPage("Movimentações");
     setMessage("");
   }
-  async function submitEntry(e: FormEvent<HTMLFormElement>) {
+  async function submitEntry(
+    e: FormEvent<HTMLFormElement>,
+    type: Entry["type"],
+    account: string,
+  ) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     try {
+      if (
+        editing &&
+        JSON.stringify(
+          data.entries.find((entry) => entry.id === editing.id),
+        ) !== JSON.stringify(editing)
+      )
+        throw new Error(
+          "Esta movimentação mudou em outra tela. Feche e abra novamente para editar a versão atual.",
+        );
       const a = data.accounts.find((a) => a.id === account);
       if (!a) throw new Error("Cadastre uma conta antes do lançamento.");
       const amount = cents(field(f, "amount"));
@@ -342,32 +367,55 @@ function App() {
         entries: data.entries.filter((x) => x.id !== e.id),
       });
   }
-  async function addAccount(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const f = new FormData(form);
-    try {
-      const type = field(f, "type") as Account["type"];
-      const a: Account = {
-        id: uid(),
-        name: field(f, "name").trim(),
-        type,
-        opening: type === "card" ? 0 : cents(field(f, "opening")),
-        closing: Number(field(f, "closing") || 1),
-        due: Number(field(f, "due") || 1),
-      };
-      if (await save({ ...data, accounts: [...data.accounts, a] }))
-        form.reset();
-    } catch (e) {
-      setMessage((e as Error).message);
+  async function saveAccount(account: Account) {
+    if (
+      editingAccount &&
+      !data.accounts.some((item) => item.id === editingAccount.id)
+    ) {
+      setMessage("Esta conta foi removida por outra pessoa.");
+      return false;
     }
+    if (
+      editingAccount &&
+      JSON.stringify(
+        data.accounts.find((item) => item.id === editingAccount.id),
+      ) !== JSON.stringify(editingAccount)
+    ) {
+      setMessage(
+        "Esta conta mudou em outra tela. Feche e abra novamente para editar a versão atual.",
+      );
+      return false;
+    }
+    const duplicateName = data.accounts.some(
+      (item) =>
+        item.id !== account.id &&
+        item.name.trim().toLocaleLowerCase("pt-BR") ===
+          account.name.trim().toLocaleLowerCase("pt-BR"),
+    );
+    if (duplicateName) {
+      setMessage("Já existe uma conta ou cartão com esse nome.");
+      return false;
+    }
+    const accounts = editingAccount
+      ? data.accounts.map((item) => (item.id === account.id ? account : item))
+      : [...data.accounts, account];
+    const saved = await save({ ...data, accounts });
+    if (saved) setEditingAccount(null);
+    return saved;
   }
   async function payInvoice(e: FormEvent<HTMLFormElement>, key: string) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const invoice = invoices(data).find((i) => i.key === key)!;
+    const invoice = invoices(data).find((i) => i.key === key);
+    if (!invoice) {
+      setMessage(
+        "Esta fatura foi atualizada. Confira os dados e tente novamente.",
+      );
+      return;
+    }
     try {
       const amount = cents(field(f, "amount"));
+      if (amount <= 0) throw new Error("Informe um valor maior que zero.");
       if (amount > invoice.total - invoice.paid)
         throw new Error("O pagamento excede o saldo da fatura.");
       const entry: Entry = {
@@ -533,14 +581,18 @@ function App() {
         </a>
         <p className="eyebrow">NOSSO ESPAÇO</p>
         <nav>
-          {labels.map((label, i) => (
+          {navigation.map((item) => (
             <button
-              key={label}
-              className={page === label ? "active" : ""}
-              onClick={() => setPage(label)}
+              key={item.page}
+              className={
+                (secondaryPages.has(page) ? "Mais" : page) === item.page
+                  ? "active"
+                  : ""
+              }
+              onClick={() => setPage(item.page)}
             >
-              <span>{["◈", "↕", "▣", "▤", "◷", "⚙"][i]}</span>
-              {label}
+              <span aria-hidden="true">{item.icon}</span>
+              {item.label}
             </button>
           ))}
         </nav>
@@ -601,16 +653,15 @@ function App() {
         )}
         <div className="heading">
           <div>
-            <p className="eyebrow">UM PASSO DE CADA VEZ</p>
             <h1>{page}</h1>
-            <p>
-              {page === "Visão geral"
-                ? "Mais clareza para decidir juntos."
-                : "Organizem os detalhes da vida financeira."}
-            </p>
           </div>
-          <button onClick={() => openEntry()} disabled={busy}>
-            + Novo lançamento
+          <button
+            onClick={() =>
+              data.accounts.length ? openEntry() : setPage("Contas e cartões")
+            }
+            disabled={busy}
+          >
+            {data.accounts.length ? "+ Nova movimentação" : "+ Cadastrar conta"}
           </button>
         </div>
         <fieldset disabled={busy} className="workspace">
@@ -648,21 +699,16 @@ function App() {
               <section className="columns">
                 <article className="panel">
                   <div className="section-title">
-                    <h2>Seu orçamento, em perspectiva</h2>
+                    <h2>Orçamento</h2>
                     <button
                       className="text-button"
-                      onClick={() => setPage("Planejamento")}
+                      onClick={() => setPage("Orçamento")}
                     >
-                      Ajustar renda →
+                      Editar
                     </button>
                   </div>
                   {data.income === 0 ? (
-                    <div className="empty">
-                      <h3>Vamos dar contexto aos gastos?</h3>
-                      <p>
-                        Informe a renda líquida média do casal em Planejamento.
-                      </p>
-                    </div>
+                    <div className="empty">—</div>
                   ) : (
                     Object.entries(groups).map(([key, g]) => {
                       const spent = monthly
@@ -734,175 +780,23 @@ function App() {
                   </button>
                 </article>
               </section>
-              <article className="panel">
-                <h2>Comece pelo que já conhece</h2>
-                <p>
-                  Cadastre as contas e o saldo inicial, informe a renda média e
-                  registre a primeira movimentação.
-                </p>
-                <button
-                  className="ghost"
-                  onClick={() => setPage("Contas e cartões")}
-                >
-                  Organizar minhas contas →
-                </button>
-              </article>
             </>
           )}
           {page === "Movimentações" && (
             <>
               {formOpen && (
-                <section className="panel">
-                  <div className="section-title">
-                    <h2>{editing ? "Editar lançamento" : "Novo lançamento"}</h2>
-                    <button
-                      className="ghost"
-                      onClick={() => setFormOpen(false)}
-                    >
-                      Fechar
-                    </button>
-                  </div>
-                  <form
-                    className="grid-form"
-                    onSubmit={submitEntry}
-                    key={editing?.id ?? "new"}
-                  >
-                    <label>
-                      Tipo
-                      <select
-                        value={type}
-                        onChange={(e) => {
-                          setType(e.target.value as Entry["type"]);
-                          setAccount(
-                            data.accounts.find((a) => a.type !== "card")?.id ??
-                              "",
-                          );
-                        }}
-                      >
-                        <option value="expense">Despesa</option>
-                        <option value="income">Receita</option>
-                        <option value="transfer">
-                          Transferência entre contas
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      Valor (R$)
-                      <input
-                        name="amount"
-                        type="number"
-                        step=".01"
-                        min=".01"
-                        required
-                        defaultValue={
-                          editing ? editing.amount / 100 : undefined
-                        }
-                      />
-                    </label>
-                    <label>
-                      Data
-                      <input
-                        name="date"
-                        type="date"
-                        required
-                        max={today()}
-                        defaultValue={editing?.date ?? today()}
-                      />
-                    </label>
-                    <label>
-                      {type === "transfer"
-                        ? "Conta de origem"
-                        : "Conta ou cartão"}
-                      <select
-                        required
-                        value={account}
-                        onChange={(e) => setAccount(e.target.value)}
-                      >
-                        <option value="">Selecione</option>
-                        {data.accounts
-                          .filter(
-                            (a) => type === "expense" || a.type !== "card",
-                          )
-                          .map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    {type === "expense" && (
-                      <label>
-                        Categoria
-                        <select
-                          name="category"
-                          required
-                          defaultValue={
-                            editing?.category ?? data.categories[0]?.id
-                          }
-                        >
-                          {data.categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    {type === "transfer" && (
-                      <label>
-                        Conta de destino
-                        <select
-                          required
-                          name="destination"
-                          defaultValue={editing?.destination ?? ""}
-                        >
-                          <option value="">Selecione</option>
-                          {data.accounts
-                            .filter(
-                              (a) => a.id !== account && a.type !== "card",
-                            )
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name}
-                              </option>
-                            ))}
-                        </select>
-                        <small>Para pagar cartão, use a aba Faturas.</small>
-                      </label>
-                    )}
-                    {type === "expense" &&
-                      data.accounts.find((a) => a.id === account)?.type ===
-                        "card" && (
-                        <label>
-                          Parcelas
-                          <input
-                            name="installments"
-                            type="number"
-                            min="1"
-                            max="120"
-                            required
-                            defaultValue={editing?.installments ?? 1}
-                          />
-                        </label>
-                      )}
-                    <label>
-                      Descrição opcional
-                      <input
-                        name="description"
-                        maxLength={120}
-                        defaultValue={editing?.description}
-                      />
-                    </label>
-                    <div className="form-actions">
-                      <button>Salvar lançamento</button>
-                    </div>
-                  </form>
-                  {!data.accounts.length && (
-                    <p className="notice">
-                      Primeiro cadastre uma conta em “Contas e cartões”.
-                    </p>
-                  )}
-                </section>
+                <EntryForm
+                  key={editing?.id ?? "new-entry"}
+                  data={data}
+                  editing={editing}
+                  onSubmit={(event, type, account) =>
+                    void submitEntry(event, type, account)
+                  }
+                  onCancel={() => {
+                    setFormOpen(false);
+                    setEditing(null);
+                  }}
+                />
               )}
               <section className="panel">
                 <label>
@@ -919,7 +813,7 @@ function App() {
                       <tr>
                         <th>Data / descrição</th>
                         <th>Conta</th>
-                        <th>Categoria</th>
+                        <th>Tipo de gasto</th>
                         <th>Valor</th>
                         <th>Ações</th>
                       </tr>
@@ -992,6 +886,28 @@ function App() {
               </section>
             </>
           )}
+          {page === "Mais" && (
+            <section className="more-grid">
+              <button className="more-card" onClick={() => setPage("Faturas")}>
+                <span aria-hidden="true">▤</span>
+                <strong>Faturas</strong>
+              </button>
+              <button
+                className="more-card"
+                onClick={() => setPage("Orçamento")}
+              >
+                <span aria-hidden="true">◷</span>
+                <strong>Orçamento</strong>
+              </button>
+              <button
+                className="more-card"
+                onClick={() => setPage("Configurações")}
+              >
+                <span aria-hidden="true">⚙</span>
+                <strong>Configurações</strong>
+              </button>
+            </section>
+          )}
           {page === "Contas e cartões" && (
             <>
               <section className="account-grid">
@@ -1014,12 +930,26 @@ function App() {
                     </strong>
                     <small>
                       {a.type === "card"
-                        ? "Dívida total · fecha dia " +
+                        ? "Fatura fecha dia " +
                           a.closing +
                           " · vence dia " +
                           a.due
                         : "Saldo atual"}
                     </small>
+                    {a.type === "card" && (
+                      <button
+                        className="ghost"
+                        onClick={() => setPage("Faturas")}
+                      >
+                        Ver faturas
+                      </button>
+                    )}
+                    <button
+                      className="ghost"
+                      onClick={() => setEditingAccount(a)}
+                    >
+                      Editar
+                    </button>
                     <button
                       className="ghost destructive"
                       onClick={() => {
@@ -1029,7 +959,7 @@ function App() {
                           )
                         ) {
                           setMessage(
-                            "Esta conta possui lançamentos e não pode ser excluída.",
+                            "Esta conta tem movimentações vinculadas e não pode ser excluída.",
                           );
                           return;
                         }
@@ -1047,65 +977,21 @@ function App() {
                   </article>
                 ))}
               </section>
-              <section className="panel">
-                <h2>Cadastrar conta ou cartão</h2>
-                <form className="grid-form" onSubmit={addAccount}>
-                  <label>
-                    Nome
-                    <input
-                      name="name"
-                      required
-                      maxLength={60}
-                      placeholder="Ex.: Conta da casa"
-                    />
-                  </label>
-                  <label>
-                    Tipo
-                    <select name="type">
-                      <option value="bank">Conta bancária</option>
-                      <option value="cash">Dinheiro</option>
-                      <option value="card">Cartão de crédito</option>
-                    </select>
-                  </label>
-                  <label>
-                    Saldo inicial da conta (R$)
-                    <input
-                      name="opening"
-                      type="number"
-                      min="0"
-                      step=".01"
-                      defaultValue="0"
-                    />
-                    <small>
-                      Cartões começam sem dívida. Registre as compras
-                      existentes.
-                    </small>
-                  </label>
-                  <label>
-                    Dia de fechamento do cartão
-                    <input
-                      name="closing"
-                      type="number"
-                      min="1"
-                      max="31"
-                      defaultValue="1"
-                    />
-                  </label>
-                  <label>
-                    Dia de vencimento do cartão
-                    <input
-                      name="due"
-                      type="number"
-                      min="1"
-                      max="31"
-                      defaultValue="10"
-                    />
-                  </label>
-                  <div className="form-actions">
-                    <button>Cadastrar</button>
-                  </div>
-                </form>
-              </section>
+              <AccountForm
+                key={editingAccount?.id ?? "new-account"}
+                account={editingAccount ?? undefined}
+                typeLocked={
+                  !!editingAccount &&
+                  data.entries.some(
+                    (entry) =>
+                      entry.account === editingAccount.id ||
+                      entry.destination === editingAccount.id,
+                  )
+                }
+                onSave={saveAccount}
+                onError={setMessage}
+                onCancel={() => setEditingAccount(null)}
+              />
             </>
           )}
           {page === "Faturas" && (
@@ -1226,14 +1112,10 @@ function App() {
               )}
             </>
           )}
-          {page === "Planejamento" && (
+          {page === "Orçamento" && (
             <>
               <section className="panel">
-                <h2>Renda líquida média do casal</h2>
-                <p>
-                  Informe o valor médio recebido por mês, depois dos descontos.
-                  Essa média orienta os valores de referência.
-                </p>
+                <h2>Renda mensal prevista</h2>
                 <form
                   className="inline-form"
                   onSubmit={async (e) => {
@@ -1251,7 +1133,7 @@ function App() {
                   }}
                 >
                   <label>
-                    Renda média (R$)
+                    Valor mensal (R$)
                     <input
                       name="income"
                       required
@@ -1290,7 +1172,7 @@ function App() {
                       onClick={() => {
                         if (data.entries.some((e) => e.category === c.id)) {
                           setMessage(
-                            "Categoria em uso. Preserve os lançamentos antes de excluí-la.",
+                            "Este tipo de gasto já aparece em movimentações e não pode ser excluído.",
                           );
                           return;
                         }
@@ -1312,16 +1194,28 @@ function App() {
                     e.preventDefault();
                     const form = e.currentTarget;
                     const f = new FormData(form);
+                    const name = field(f, "name").trim();
+                    const group = field(f, "group") as Group;
+                    if (!name) {
+                      setMessage("Informe o nome do tipo de gasto.");
+                      return;
+                    }
+                    if (
+                      data.categories.some(
+                        (category) =>
+                          category.name.trim().toLocaleLowerCase("pt-BR") ===
+                          name.toLocaleLowerCase("pt-BR"),
+                      )
+                    ) {
+                      setMessage("Esse tipo de gasto já existe.");
+                      return;
+                    }
                     if (
                       await save({
                         ...data,
                         categories: [
                           ...data.categories,
-                          {
-                            id: uid(),
-                            name: field(f, "name").trim(),
-                            group: field(f, "group") as Group,
-                          },
+                          { id: uid(), name, group },
                         ],
                       })
                     )
@@ -1425,7 +1319,9 @@ function App() {
                         try {
                           if (file.size > 5_000_000)
                             throw new Error("Arquivo muito grande.");
-                          const next = validate(JSON.parse(await file.text()));
+                          const next = upgradeData(
+                            validate(JSON.parse(await file.text())),
+                          );
                           if (
                             confirm(
                               "Substituir todos os dados atuais pelos dados deste arquivo?",

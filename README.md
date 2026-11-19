@@ -26,15 +26,13 @@ Abra o endereço mostrado no terminal. Sem configuração do Supabase, o app usa
 
 No Windows, npm.cmd evita o bloqueio do script npm.ps1 pelo PowerShell.
 
-## Uso inicial
+## Organização do app
 
-1. Cadastre uma conta em Contas e cartões, incluindo o saldo inicial.
-2. Cadastre os cartões e os dias de fechamento e vencimento.
-3. Em Planejamento, informe a renda líquida média e personalize as categorias.
-4. Registre receitas, despesas e transferências em Movimentações.
-5. Selecione o mês no topo para consultar gastos e faturas.
-6. Pague as faturas pela aba Faturas. Pagamentos aparecem como transferências e não duplicam os gastos.
-7. Exporte cópias de segurança em Configurações.
+- **Resumo** mostra os saldos, valores recebidos, gastos e faturas do período selecionado.
+- **Movimentações** registra o que foi gasto, recebido ou transferido. Compras no cartão aceitam parcelas.
+- **Contas** reúne contas bancárias, dinheiro e cartões. O formulário apresenta somente os campos do tipo selecionado.
+- **Mais** contém faturas, orçamento e configurações. As faturas também podem ser abertas pelo resumo ou pelo cartão.
+- **Orçamento** usa a renda mensal prevista e categorias cotidianas agrupadas internamente em 50/30/20. Receitas registradas continuam separadas do valor previsto para o orçamento.
 
 Compras na data do fechamento pertencem à fatura corrente. Depois dessa data, entram na seguinte. Se o vencimento for igual ou anterior ao fechamento, o vencimento será no mês seguinte. Dias inexistentes usam o último dia do mês. A diferença de centavos fica na última parcela. As faturas seguem o calendário informado, sem ajuste automático por feriados ou regras específicas de emissoras.
 
@@ -50,13 +48,14 @@ A implementação já está conectada neste workspace ao projeto próprio. Os pa
 6. Reinicie npm.cmd run dev. Crie sua conta, confirme seu e-mail e entre.
 7. O modo nuvem começa com uma casa vazia. Para levar os dados locais, exporte antes de ativá-lo e depois restaure o backup na conta correta.
 
-A segunda pessoa entra pelo convite, usando o mesmo e-mail informado. Uma conta já associada a uma casa com dados não é movida silenciosamente. O app atualiza dados remotos a cada 15 segundos e ao voltar à janela. Salvamentos usam versão esperada: em conflito, atualize a tela antes de repetir a alteração.
+A segunda pessoa entra pelo convite, usando o mesmo e-mail informado. Uma conta já associada a uma casa com dados não é movida silenciosamente. O app atualiza dados remotos a cada 15 segundos e ao voltar à janela, sem assinatura Realtime. Salvamentos usam versão esperada. Se o mesmo registro for alterado na outra tela, reabra-o antes de salvar para preservar a alteração mais recente.
 
 ### Envio de convites
 
 A função está em supabase/functions/invite-member. Ela valida a sessão e se o usuário é o criador da casa antes de usar acesso administrativo.
 
 Configure os segredos da função no Supabase:
+
 - APP_URL: URL pública do app (no desenvolvimento, endereço acessível pela pessoa convidada).
 - RESEND_API_KEY: credencial de envio do Resend.
 - EMAIL_FROM: remetente em um domínio verificado pelo provedor.

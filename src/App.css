@@ -186,6 +186,53 @@ header {
   margin-top: 22px;
   align-items: start;
 }
+.entry-type-choice {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.entry-type-choice legend {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+.choice-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.choice {
+  background: #fff;
+  color: #315942;
+  border: 1px solid #dbe3d7;
+}
+.choice.active {
+  background: #eaf1e6;
+  border-color: #86a58a;
+  color: #204d3b;
+}
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+.more-card {
+  min-height: 130px;
+  padding: 22px;
+  background: #fff;
+  color: #315942;
+  border: 1px solid #dbe3d7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.more-card span {
+  color: #728373;
+  font-size: 20px;
+}
+.more-card strong {
+  font-size: 16px;
+}
 .form-actions {
   display: flex;
   align-items: end;

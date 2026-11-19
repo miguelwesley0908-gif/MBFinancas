@@ -7,6 +7,7 @@ import {
   initial,
   validate,
   cents,
+  upgradeData,
 } from "../src/domain.ts";
 const card = {
   id: "c",
@@ -31,7 +32,7 @@ const purchase = {
   date: "2026-11-01",
   account: "c",
   destination: "",
-  category: "needs",
+  category: "housing",
   description: "Compra",
   installments: 3,
   invoice: "",
@@ -91,6 +92,43 @@ test("pagamento diminui banco e dívida sem duplicar despesa", () => {
 });
 test("backup com referência inexistente é rejeitado", () =>
   assert.throws(() => validate({ ...initial, entries: [purchase] })));
+test("migração preserva categorias antigas usadas e acrescenta categorias diretas", () => {
+  const oldData = {
+    ...structuredClone(initial),
+    accounts: [bank, card],
+    categories: [
+      { id: "needs", name: "Essenciais", group: "needs" },
+      { id: "wants", name: "Não essenciais", group: "wants" },
+      { id: "future", name: "Reserva e objetivos", group: "future" },
+    ],
+    entries: [{ ...purchase, category: "needs" }],
+  };
+  const upgraded = upgradeData(validate(oldData));
+  assert.equal(
+    upgraded.categories.some((category) => category.id === "needs"),
+    true,
+  );
+  assert.equal(
+    upgraded.categories.some((category) => category.id === "housing"),
+    true,
+  );
+  assert.equal(upgraded.entries[0].category, "needs");
+});
+test("dados importados não aceitam saldo negativo nem parcela em despesa bancária", () => {
+  assert.throws(() =>
+    validate({
+      ...initial,
+      accounts: [{ ...bank, opening: -1 }],
+    }),
+  );
+  assert.throws(() =>
+    validate({
+      ...initial,
+      accounts: [bank],
+      entries: [{ ...purchase, account: "b", installments: 2, schedule: [] }],
+    }),
+  );
+});
 test("quantidade inválida de parcelas e dinheiro não numérico são rejeitados", () => {
   assert.throws(() => schedule(50, 60, "2026-11-19", card));
   assert.throws(() => cents("abc"));

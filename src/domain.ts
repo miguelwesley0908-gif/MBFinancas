@@ -33,17 +33,37 @@ export const groups: Record<Group, { label: string; ratio: number }> = {
   wants: { label: "Desejos", ratio: 0.3 },
   future: { label: "Futuro financeiro", ratio: 0.2 },
 };
+const standardCategories: Category[] = [
+  { id: "housing", name: "Moradia", group: "needs" },
+  { id: "food", name: "Mercado e alimentação", group: "needs" },
+  { id: "transport", name: "Transporte", group: "needs" },
+  { id: "health", name: "Saúde", group: "needs" },
+  { id: "home-bills", name: "Contas da casa", group: "needs" },
+  { id: "dining", name: "Restaurantes", group: "wants" },
+  { id: "leisure", name: "Lazer", group: "wants" },
+  { id: "shopping", name: "Compras pessoais", group: "wants" },
+  { id: "subscriptions", name: "Assinaturas", group: "wants" },
+  { id: "savings", name: "Reserva e investimentos", group: "future" },
+];
 export const initial: Data = {
   schema: 1,
   income: 0,
   accounts: [],
-  categories: [
-    { id: "needs", name: "Essenciais", group: "needs" },
-    { id: "wants", name: "Não essenciais", group: "wants" },
-    { id: "future", name: "Reserva e objetivos", group: "future" },
-  ],
+  categories: standardCategories,
   entries: [],
 };
+const legacyCategoryIds = new Set(["needs", "wants", "future"]);
+export function upgradeData(data: Data): Data {
+  const usedCategories = new Set(data.entries.map((entry) => entry.category));
+  const categories = data.categories.filter(
+    (category) =>
+      !legacyCategoryIds.has(category.id) || usedCategories.has(category.id),
+  );
+  const existingIds = new Set(categories.map((category) => category.id));
+  for (const category of standardCategories)
+    if (!existingIds.has(category.id)) categories.push(category);
+  return { ...data, categories };
+}
 export const money = (n: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     n / 100,
@@ -165,15 +185,19 @@ export function validate(data: Data): Data {
   ids(data.entries);
   for (const a of data.accounts)
     if (
-      !a.name?.trim() ||
+      typeof a.name !== "string" ||
+      !a.name.trim() ||
       !["bank", "cash", "card"].includes(a.type) ||
       !Number.isSafeInteger(a.opening) ||
+      a.opening < 0 ||
+      a.opening > 100000000000 ||
       !Number.isInteger(a.closing) ||
       a.closing < 1 ||
       a.closing > 31 ||
       !Number.isInteger(a.due) ||
       a.due < 1 ||
-      a.due > 31
+      a.due > 31 ||
+      (a.type === "card" && a.opening !== 0)
     )
       throw new Error("Conta inválida.");
   for (const c of data.categories)
@@ -184,9 +208,14 @@ export function validate(data: Data): Data {
       !["income", "expense", "transfer"].includes(e.type) ||
       !Number.isSafeInteger(e.amount) ||
       e.amount <= 0 ||
+      e.amount > 100000000000 ||
       !/^\d{4}-\d{2}-\d{2}$/.test(e.date) ||
       !data.accounts.some((a) => a.id === e.account) ||
-      !Array.isArray(e.schedule)
+      !Array.isArray(e.schedule) ||
+      typeof e.destination !== "string" ||
+      typeof e.category !== "string" ||
+      typeof e.description !== "string" ||
+      typeof e.invoice !== "string"
     )
       throw new Error("Lançamento inválido.");
     if (
@@ -203,6 +232,10 @@ export function validate(data: Data): Data {
     const card = data.accounts.find((a) => a.id === e.account)?.type === "card";
     if (card && e.type !== "expense")
       throw new Error("Use uma conta bancária como origem.");
+    if (e.type !== "expense" && e.installments !== 1)
+      throw new Error("Apenas compras podem ser parceladas.");
+    if (e.type === "expense" && !card && e.installments !== 1)
+      throw new Error("Parcelas só podem ser usadas em compras no cartão.");
     if (
       e.type === "expense" &&
       card &&
