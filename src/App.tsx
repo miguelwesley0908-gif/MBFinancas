@@ -218,7 +218,17 @@ function App() {
       const { error } = await supabase.functions.invoke("invite-member", {
         body: { email, householdId: household },
       });
-      if (error) throw error;
+      if (error) {
+        let message = error.message;
+        const context = (error as { context?: unknown }).context;
+        if (context instanceof Response) {
+          const body = (await context.clone().json().catch(() => null)) as
+            | { error?: unknown }
+            | null;
+          if (typeof body?.error === "string") message = body.error;
+        }
+        throw new Error(message);
+      }
     } finally {
       setBusy(false);
     }

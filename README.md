@@ -12,7 +12,7 @@ A validação SQL para os novos campos de recorrência e faturas está em `supab
 
 Foram verificados: leitura/escrita dos membros, isolamento entre casas, rejeição de versão desatualizada, e-mail do destinatário do convite, aceitação repetida do mesmo convite e bloqueio de chamadas anônimas. A transação de teste foi desfeita; o projeto está sem usuários e dados financeiros. A tela de login e os endpoints públicos também foram verificados.
 
-Ainda não configurados: SMTP de autenticação, segredos APP_URL/RESEND_API_KEY/EMAIL_FROM da função e endereço público do frontend. Não houve envio de e-mails nem cadastro real. A função retorna erro de configuração quando um usuário autenticado tenta enviar sem esses dados.
+O SMTP personalizado do Supabase Auth está habilitado. O envio real de convite ainda não foi confirmado; a entrega depende do provedor SMTP e deve ser conferida na caixa de entrada e no spam.
 
 O verificador Supabase sinaliza três funções SECURITY DEFINER executáveis por autenticados. Isso é intencional para as operações atômicas; cada função valida identidade, participação ou destinatário, usa search_path vazio e não está disponível a anônimos. As proteções foram exercitadas por supabase/verify-access.sql. Referência: https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable
 Os índices ainda sem uso foram mantidos porque o projeto está vazio. Referência: https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index
@@ -58,15 +58,13 @@ A segunda pessoa entra pelo convite, usando o mesmo e-mail informado. Uma conta 
 
 A função está em supabase/functions/invite-member. Ela valida a sessão e se o usuário é o criador da casa antes de usar acesso administrativo.
 
-Configure os segredos da função no Supabase:
+Os convites são enviados pelo SMTP configurado em Authentication → Emails → SMTP Settings. Para convidar alguém sem conta, a função usa o fluxo de convite do Supabase Auth; para um e-mail já cadastrado, envia um link de acesso que também preserva o token da casa. Assim, os dois casos chegam à mesma tela de aceite.
 
-- APP_URL: URL pública do app (no desenvolvimento, endereço acessível pela pessoa convidada).
-- RESEND_API_KEY: credencial de envio do Resend.
-- EMAIL_FROM: remetente em um domínio verificado pelo provedor.
+Por padrão, o link de retorno usa o domínio público atual do app. Se o app passar a usar outro domínio, configure `APP_URL` como segredo da função com a URL base pública, e inclua esse domínio na lista de redirecionamentos permitidos em Authentication → URL Configuration. Em desenvolvimento, `http://localhost:5173` é aceito apenas para testes locais.
 
-O Supabase fornece SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no servidor. Essas credenciais não pertencem ao frontend. Publique a função invite-member com a verificação JWT de gateway desativada conforme supabase/config.toml: a própria função valida o token com auth.getUser.
+O Supabase fornece as credenciais administrativas no servidor. Elas não pertencem ao frontend. Publique a função `invite-member` com a verificação JWT de gateway desativada conforme `supabase/config.toml`: a própria função valida o token com `auth.getUser`.
 
-O convite expira em sete dias e confere o e-mail confirmado de quem aceita. O máximo é de dois membros por casa. O envio de e-mail não foi executado neste ambiente; depende desses segredos e do domínio remetente.
+O convite expira em sete dias e confere o e-mail confirmado de quem aceita. O máximo é de dois membros por casa. A função foi atualizada para usar o SMTP de autenticação; a entrega real ainda precisa ser confirmada com um envio iniciado pelo usuário.
 
 ## Verificação
 
