@@ -102,6 +102,99 @@
 .dashboard-note span {
   color: #65766a;
 }
+.recurrence-forecast-panel {
+  margin-bottom: 18px;
+}
+.recurrence-forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.recurrence-month-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e0e7d9;
+  border-radius: 12px;
+  background: #fbfcfa;
+}
+.recurrence-month-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 9px;
+}
+.recurrence-month-heading > div:first-child > small {
+  color: #6f806e;
+  font-size: 12px;
+}
+.recurrence-month-heading h3 {
+  margin: 2px 0 0;
+  color: #204d3b;
+  font-size: 16px;
+  text-transform: capitalize;
+}
+.recurrence-month-total {
+  display: grid;
+  justify-items: end;
+  white-space: nowrap;
+}
+.recurrence-month-total strong {
+  color: #204d3b;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.recurrence-month-total small {
+  color: #6f806e;
+  font-size: 12px;
+}
+.recurrence-month-list {
+  display: grid;
+}
+.recurrence-preview-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 0;
+  border-top: 1px solid #e9ede5;
+}
+.recurrence-preview-info {
+  min-width: 0;
+}
+.recurrence-preview-info strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.recurrence-preview-info small {
+  display: block;
+  margin-top: 2px;
+  color: #627468;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.recurrence-preview-value {
+  display: grid;
+  justify-items: end;
+  white-space: nowrap;
+}
+.recurrence-preview-value strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.recurrence-preview-value small {
+  color: #6f806e;
+  font-size: 11px;
+}
+.recurrence-empty {
+  margin: 0;
+  padding: 18px 8px;
+  font-size: 13px;
+}
 .negative {
   color: #a4483c;
 }
@@ -762,6 +855,9 @@ footer {
   .monthly-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .recurrence-forecast-grid {
+    grid-template-columns: 1fr;
+  }
   .filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -901,6 +997,13 @@ footer {
   .occurrence-actions {
     grid-column: 1 / -1;
     justify-content: flex-end;
+  }
+  .recurrence-preview-row {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 7px;
+  }
+  .recurrence-preview-row .occurrence-actions {
+    grid-column: 2 / -1;
   }
   .account-row {
     grid-template-columns: 30px minmax(0, 1fr) auto;

@@ -36,6 +36,7 @@ import {
   InvoicesSection,
   MovementsSection,
   PlanningSection,
+  RecurringForecastSection,
   SettingsSection,
 } from "./components/FinanceSections";
 import { AccountForm } from "./components/AccountForm";
@@ -155,12 +156,24 @@ export function FinanceHome({
   const monthlyEntries = data.entries.filter((entry) =>
     entry.date.startsWith(month),
   );
-  const pendingOccurrences = data.recurrences.flatMap((recurrence) =>
-    occurrenceForMonth(recurrence, month, data).map((occurrence) => ({
-      occurrence,
-      recurrence,
-    })),
-  );
+  const nextMonth = monthOffset(month, 1);
+  const recurrenceOccurrencesForMonth = (targetMonth: string) =>
+    data.recurrences
+      .flatMap((recurrence) =>
+        occurrenceForMonth(recurrence, targetMonth, data).map((occurrence) => ({
+          occurrence,
+          recurrence,
+        })),
+      )
+      .filter(
+        ({ occurrence }) =>
+          occurrence.status !== "paid" ||
+          data.accounts.find((account) => account.id === occurrence.account)
+            ?.type === "card",
+      )
+      .sort((a, b) => a.occurrence.date.localeCompare(b.occurrence.date));
+  const currentRecurringOccurrences = recurrenceOccurrencesForMonth(month);
+  const nextRecurringOccurrences = recurrenceOccurrencesForMonth(nextMonth);
   const allInvoices = invoices(data);
   const paymentKeysThisMonth = new Set(
     data.entries
@@ -227,19 +240,6 @@ export function FinanceHome({
       entry,
     })),
     ...pendingInvoiceRows,
-    ...pendingOccurrences
-      .filter(
-        ({ occurrence }) =>
-          occurrence.status !== "paid" ||
-          data.accounts.find((account) => account.id === occurrence.account)
-            ?.type === "card",
-      )
-      .map(({ occurrence, recurrence }) => ({
-        kind: "occurrence" as const,
-        date: occurrence.date,
-        occurrence,
-        recurrence,
-      })),
   ]
     .filter((row) => {
       const entryDestination =
@@ -263,27 +263,16 @@ export function FinanceHome({
           ? (data.categories.find(
               (category) => category.id === row.entry.category,
             )?.name ?? "")
-          : row.kind === "occurrence"
-            ? (data.categories.find(
-                (category) => category.id === row.occurrence.category,
-              )?.name ?? "")
-            : "";
+          : "";
       const text = `${entryTitle} ${categoryName} ${entryDestination?.name ?? ""}`;
       const type = row.kind === "entry" ? row.entry.type : "expense";
-      const category =
-        row.kind === "entry"
-          ? row.entry.category
-          : row.kind === "occurrence"
-            ? row.occurrence.category
-            : "";
+      const category = row.kind === "entry" ? row.entry.category : "";
       const matchesAccount =
         row.kind === "entry"
           ? row.entry.account === filterAccount ||
             (row.entry.type === "transfer" &&
               row.entry.destination === filterAccount)
-          : row.kind === "occurrence"
-            ? row.occurrence.account === filterAccount
-            : row.invoice.card.id === filterAccount;
+          : row.invoice.card.id === filterAccount;
       return (
         text
           .toLocaleLowerCase("pt-BR")
@@ -1178,6 +1167,24 @@ export function FinanceHome({
         </span>
       </div>
 
+      <RecurringForecastSection
+        data={data}
+        currentMonth={month}
+        nextMonth={nextMonth}
+        currentOccurrences={currentRecurringOccurrences}
+        nextOccurrences={nextRecurringOccurrences}
+        onMarkOccurrence={(occurrence, recurrence) =>
+          void markOccurrencePaid(occurrence, recurrence)
+        }
+        onEditOccurrence={(occurrence, recurrence) => {
+          setSelectedOccurrence({ occurrence, recurrence });
+          setModal("occurrence");
+        }}
+        onOccurrenceAction={(occurrence, recurrence, action) =>
+          void occurrenceAction(occurrence, recurrence, action)
+        }
+      />
+
       <MovementsSection
         data={data}
         rows={visibleRows}
@@ -1200,23 +1207,7 @@ export function FinanceHome({
         }}
         onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
         onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
-        onConfirmForecast={(invoice) => {
-          setEditingEntry(null);
-          setEditingInvoice(null);
-          setNewInvoiceCardId(invoice.card.id);
-          setModal("expense");
-        }}
         onRemoveEntry={(entry) => void removeEntry(entry)}
-        onMarkOccurrence={(occurrence, recurrence) =>
-          void markOccurrencePaid(occurrence, recurrence)
-        }
-        onEditOccurrence={(occurrence, recurrence) => {
-          setSelectedOccurrence({ occurrence, recurrence });
-          setModal("occurrence");
-        }}
-        onOccurrenceAction={(occurrence, recurrence, action) =>
-          void occurrenceAction(occurrence, recurrence, action)
-        }
       />
       <AccountsSection
         data={data}

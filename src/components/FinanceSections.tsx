@@ -16,13 +16,7 @@ import {
 
 export type MovementRow =
   | { kind: "entry"; date: string; entry: Entry }
-  | { kind: "invoice"; date: string; invoice: InvoiceView }
-  | {
-      kind: "occurrence";
-      date: string;
-      occurrence: ExpenseOccurrence;
-      recurrence: ExpenseRecurrence;
-    };
+  | { kind: "invoice"; date: string; invoice: InvoiceView };
 
 const dateLabel = (value: string) => value.split("-").reverse().join("/");
 
@@ -44,21 +38,7 @@ type MovementsProps = {
     event: FormEvent<HTMLFormElement>,
     invoice: InvoiceView,
   ) => void;
-  onConfirmForecast: (invoice: InvoiceView) => void;
   onRemoveEntry: (entry: Entry) => void;
-  onMarkOccurrence: (
-    occurrence: ExpenseOccurrence,
-    recurrence: ExpenseRecurrence,
-  ) => void;
-  onEditOccurrence: (
-    occurrence: ExpenseOccurrence,
-    recurrence: ExpenseRecurrence,
-  ) => void;
-  onOccurrenceAction: (
-    occurrence: ExpenseOccurrence,
-    recurrence: ExpenseRecurrence,
-    action: "skip" | "restore",
-  ) => void;
 };
 
 export function MovementsSection({
@@ -76,11 +56,7 @@ export function MovementsSection({
   onEditInvoice,
   onDeleteInvoice,
   onPayInvoice,
-  onConfirmForecast,
   onRemoveEntry,
-  onMarkOccurrence,
-  onEditOccurrence,
-  onOccurrenceAction,
 }: MovementsProps) {
   return (
     <section id="movements" className="panel section-panel">
@@ -188,12 +164,7 @@ export function MovementsSection({
               </div>
               <div className="invoice-actions">
                 {row.invoice.source === "forecast" ? (
-                  <button
-                    className="ghost compact-button"
-                    onClick={() => onConfirmForecast(row.invoice)}
-                  >
-                    Informar valor real
-                  </button>
+                  <span className="badge forecast-badge">Previsão</span>
                 ) : row.invoice.paid >= row.invoice.total ? (
                   <span className="badge paid">Paga</span>
                 ) : (
@@ -280,7 +251,7 @@ export function MovementsSection({
                 )}
               </div>
             </article>
-          ) : row.kind === "entry" ? (
+          ) : (
             <article className="list-row" key={row.entry.id}>
               <div className="list-main">
                 <span className={`list-icon ${row.entry.type}`}>
@@ -355,91 +326,6 @@ export function MovementsSection({
                 </div>
               </details>
             </article>
-          ) : (
-            <article
-              className="list-row forecast-row"
-              key={row.occurrence.recurrenceId + row.occurrence.occurrenceDate}
-            >
-              <div className="list-main">
-                <span className="list-icon forecast">◷</span>
-                <div>
-                  <strong>{row.occurrence.description}</strong>
-                  <small>
-                    {
-                      data.categories.find(
-                        (category) => category.id === row.occurrence.category,
-                      )?.name
-                    }{" "}
-                    · vence {dateLabel(row.occurrence.date)} ·{" "}
-                    {
-                      data.accounts.find(
-                        (account) => account.id === row.occurrence.account,
-                      )?.name
-                    }{" "}
-                    · previsão
-                  </small>
-                </div>
-              </div>
-              <div className="row-value">{money(row.occurrence.amount)}</div>
-              <div className="occurrence-actions">
-                {row.occurrence.status === "paid" ? (
-                  <span className="badge paid">Confirmada</span>
-                ) : row.occurrence.status === "skipped" ? (
-                  <>
-                    <span className="badge">Ignorada</span>
-                    <button
-                      className="small-action"
-                      onClick={() =>
-                        onOccurrenceAction(
-                          row.occurrence,
-                          row.recurrence,
-                          "restore",
-                        )
-                      }
-                    >
-                      Restaurar
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {row.occurrence.date < today() && (
-                      <span className="badge late">Atrasada</span>
-                    )}
-                    <button
-                      className="small-action"
-                      onClick={() =>
-                        onMarkOccurrence(row.occurrence, row.recurrence)
-                      }
-                    >
-                      Marcar paga
-                    </button>
-                    <details className="row-menu">
-                      <summary aria-label="Ações da previsão">•••</summary>
-                      <div>
-                        <button
-                          onClick={() =>
-                            onEditOccurrence(row.occurrence, row.recurrence)
-                          }
-                        >
-                          Editar ocorrência
-                        </button>
-                        <button
-                          onClick={() =>
-                            onOccurrenceAction(
-                              row.occurrence,
-                              row.recurrence,
-                              "skip",
-                            )
-                          }
-                        >
-                          Pular este mês
-                        </button>
-                      </div>
-                    </details>
-                  </>
-                )}
-              </div>
-            </article>
           ),
         )}
         {!rows.length && (
@@ -448,6 +334,192 @@ export function MovementsSection({
             entrada ou saída.
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+type RecurrenceOccurrence = {
+  occurrence: ExpenseOccurrence;
+  recurrence: ExpenseRecurrence;
+};
+
+type RecurringForecastProps = {
+  data: Data;
+  currentMonth: string;
+  nextMonth: string;
+  currentOccurrences: RecurrenceOccurrence[];
+  nextOccurrences: RecurrenceOccurrence[];
+  onMarkOccurrence: (
+    occurrence: ExpenseOccurrence,
+    recurrence: ExpenseRecurrence,
+  ) => void;
+  onEditOccurrence: (
+    occurrence: ExpenseOccurrence,
+    recurrence: ExpenseRecurrence,
+  ) => void;
+  onOccurrenceAction: (
+    occurrence: ExpenseOccurrence,
+    recurrence: ExpenseRecurrence,
+    action: "skip" | "restore",
+  ) => void;
+};
+
+function monthTitle(month: string) {
+  const [year, value] = month.split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, value - 1, 1)));
+}
+
+export function RecurringForecastSection({
+  data,
+  currentMonth,
+  nextMonth,
+  currentOccurrences,
+  nextOccurrences,
+  onMarkOccurrence,
+  onEditOccurrence,
+  onOccurrenceAction,
+}: RecurringForecastProps) {
+  const renderMonth = (
+    month: string,
+    label: string,
+    items: RecurrenceOccurrence[],
+    isCurrent: boolean,
+  ) => {
+    const total = items.reduce(
+      (sum, item) =>
+        sum +
+        (item.occurrence.status === "pending" ? item.occurrence.amount : 0),
+      0,
+    );
+    const pendingCount = items.filter(
+      (item) => item.occurrence.status === "pending",
+    ).length;
+
+    return (
+      <section className="recurrence-month-card" key={month}>
+        <div className="recurrence-month-heading">
+          <div>
+            <small>{label}</small>
+            <h3>{monthTitle(month)}</h3>
+          </div>
+          <div className="recurrence-month-total">
+            <strong>{money(total)}</strong>
+            <small>
+              {pendingCount} {pendingCount === 1 ? "pendente" : "pendentes"}
+            </small>
+          </div>
+        </div>
+        <div className="recurrence-month-list">
+          {items.map(({ occurrence, recurrence }) => {
+            const category = data.categories.find(
+              (item) => item.id === occurrence.category,
+            )?.name;
+            const account = data.accounts.find(
+              (item) => item.id === occurrence.account,
+            )?.name;
+            const status =
+              occurrence.status === "skipped"
+                ? "Ignorada"
+                : occurrence.status === "paid"
+                  ? "Confirmada"
+                  : isCurrent && occurrence.date < today()
+                    ? "Atrasada"
+                    : isCurrent
+                      ? "Pendente"
+                      : "Prevista";
+
+            return (
+              <article
+                className="recurrence-preview-row forecast-row"
+                key={occurrence.key}
+              >
+                <span className="list-icon forecast">◷</span>
+                <div className="recurrence-preview-info">
+                  <strong>{occurrence.description}</strong>
+                  <small>
+                    {category} · {dateLabel(occurrence.date)} · {account}
+                  </small>
+                </div>
+                <div className="recurrence-preview-value">
+                  <strong>{money(occurrence.amount)}</strong>
+                  <small>{status}</small>
+                </div>
+                <div className="occurrence-actions">
+                  {occurrence.status === "paid" ? (
+                    <span className="badge paid">Confirmada</span>
+                  ) : occurrence.status === "skipped" ? (
+                    <button
+                      className="small-action"
+                      onClick={() =>
+                        onOccurrenceAction(occurrence, recurrence, "restore")
+                      }
+                    >
+                      Restaurar
+                    </button>
+                  ) : isCurrent ? (
+                    <>
+                      <button
+                        className="small-action"
+                        onClick={() => onMarkOccurrence(occurrence, recurrence)}
+                      >
+                        Marcar paga
+                      </button>
+                      <details className="row-menu">
+                        <summary aria-label="Ações da previsão">•••</summary>
+                        <div>
+                          <button
+                            onClick={() =>
+                              onEditOccurrence(occurrence, recurrence)
+                            }
+                          >
+                            Editar ocorrência
+                          </button>
+                          <button
+                            onClick={() =>
+                              onOccurrenceAction(occurrence, recurrence, "skip")
+                            }
+                          >
+                            Pular este mês
+                          </button>
+                        </div>
+                      </details>
+                    </>
+                  ) : (
+                    <span className="badge forecast-badge">Prevista</span>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+          {!items.length && (
+            <p className="empty recurrence-empty">
+              Nenhuma despesa recorrente prevista.
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  };
+
+  return (
+    <section className="panel recurrence-forecast-panel">
+      <div className="section-title">
+        <div>
+          <h2>Despesas recorrentes</h2>
+          <small>
+            Previsões do mês selecionado e do próximo; não alteram os totais
+            realizados.
+          </small>
+        </div>
+      </div>
+      <div className="recurrence-forecast-grid">
+        {renderMonth(currentMonth, "Mês selecionado", currentOccurrences, true)}
+        {renderMonth(nextMonth, "Próximo mês", nextOccurrences, false)}
       </div>
     </section>
   );

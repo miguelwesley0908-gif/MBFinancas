@@ -101,6 +101,12 @@ test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => 
   await expect(
     page.getByText("Internet", { exact: true }).first(),
   ).toBeVisible();
+  const nextMonthRecurrences = page.locator(".recurrence-month-card").nth(1);
+  await expect(nextMonthRecurrences).toContainText("Próximo mês");
+  await expect(nextMonthRecurrences).toContainText("Internet");
+  await expect(
+    page.locator(".monthly-metrics .expense-metric strong"),
+  ).toContainText("25,00");
   await page.locator(".forecast-row .row-menu summary").click();
   await page.getByRole("button", { name: "Editar ocorrência" }).click();
   await page.getByLabel("Valor (R$)").fill("130");
