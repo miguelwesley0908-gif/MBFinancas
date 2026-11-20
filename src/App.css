@@ -4,22 +4,15 @@
   padding: 0 0 28px;
 }
 .brand {
-  color: #185b45;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -1.6px;
-  text-decoration: none;
+  flex: 0 0 auto;
 }
-.brand span {
-  max-width: 112px;
-  color: #61766a;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  line-height: 1.35;
+.brand-logo {
+  display: block;
+  width: 156px;
+  max-width: 100%;
+  height: auto;
 }
 .app-header {
   display: flex;
@@ -34,9 +27,12 @@
   align-items: center;
   gap: 10px;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 .app-header .month input {
-  width: 165px;
+  width: 184px;
+  min-width: 184px;
+  flex: 0 0 184px;
 }
 .eyebrow {
   display: block;
@@ -104,7 +100,7 @@
   justify-content: space-between;
   gap: 8px 16px;
   flex-wrap: wrap;
-  margin: -4px 0 14px;
+  margin: 0 0 14px;
   padding: 9px 13px;
   border: 1px solid #dce7d8;
   border-radius: 10px;
@@ -132,6 +128,103 @@
   max-width: 620px;
   margin: 2px 0 4px;
   line-height: 1.45;
+}
+.projection-panel {
+  margin-bottom: 14px;
+}
+.projection-month-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.projection-month-card {
+  min-width: 0;
+  padding: 15px 17px;
+  border: 1px solid #dce7d8;
+  border-radius: 12px;
+  background: #f9fbf7;
+}
+.projection-month-heading small {
+  color: #65766a;
+  font-size: 12px;
+  font-weight: 600;
+}
+.projection-month-heading h3 {
+  margin: 3px 0 8px;
+  color: #204d3b;
+  font-size: 17px;
+}
+.projection-values {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+.projection-values > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e5ece1;
+}
+.projection-values > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.projection-values dt {
+  color: #65766a;
+  font-size: 13px;
+}
+.projection-values dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.projection-margin dt {
+  color: #204d3b;
+  font-weight: 700;
+}
+.projection-margin dd {
+  font-weight: 700;
+}
+.projection-explainer {
+  border-top: 1px solid #e9ede5;
+}
+.projection-explainer summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #31694c;
+  font-size: 13px;
+  font-weight: 600;
+}
+.projection-explainer p {
+  max-width: 760px;
+  margin: 0 0 5px;
+  color: #65766a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.actual-summary {
+  margin-bottom: 14px;
+}
+.actual-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.actual-metric-grid .metric {
+  border-top: 4px solid #6d8b78;
+}
+.actual-metric-grid .income-metric {
+  border-top-color: #438a62;
+}
+.actual-metric-grid .expense-metric {
+  border-top-color: #c5796a;
 }
 .overview-grid {
   display: grid;
@@ -194,30 +287,6 @@
 .quick-links-panel button {
   min-height: 42px;
   white-space: nowrap;
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.monthly-metrics {
-  display: contents;
-}
-.monthly-metrics .metric {
-  border-top-width: 4px;
-}
-.monthly-metrics .income-metric {
-  border-top-color: #438a62;
-}
-.monthly-metrics .expense-metric {
-  border-top-color: #c5796a;
-}
-.monthly-metrics .result-metric {
-  border-top-color: #6d8b78;
-}
-.metrics .metric.featured {
-  min-height: 132px;
 }
 .recurrence-forecast-panel,
 .section-panel {
@@ -372,15 +441,6 @@
 .metric small {
   font-size: 13px;
 }
-.metric.featured {
-  background: #204d3b;
-  color: #fff;
-  border-color: #204d3b;
-}
-.metric.featured span,
-.metric.featured small {
-  color: #c4d7c3;
-}
 .section-title {
   display: flex;
   justify-content: space-between;
@@ -508,7 +568,7 @@
   color: #4c5c90;
 }
 .row-value,
-.account-balance {
+.invoice-total {
   white-space: nowrap;
   font-size: 14px;
   font-weight: 700;
@@ -610,9 +670,6 @@
   color: #a4483c !important;
 }
 .account-row {
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
-}
-.account-row.card-account-row {
   grid-template-columns: 34px minmax(0, 1fr) auto;
 }
 .account-row .card-invoices {
@@ -941,6 +998,9 @@
 .auth .brand {
   margin-bottom: 20px;
 }
+.auth .brand-logo {
+  width: 190px;
+}
 .auth h1 {
   margin-bottom: 12px;
 }
@@ -949,18 +1009,15 @@
   gap: 16px;
   margin: 18px 0;
 }
-footer {
-  padding: 14px 0;
-  color: #718071;
-  font-size: 11px;
-  text-align: center;
-}
 @media (max-width: 900px) {
-  .metrics {
+  .projection-month-grid {
+    grid-template-columns: 1fr;
+  }
+  .actual-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .monthly-metrics {
-    display: contents;
+  .actual-metric-grid .result-metric {
+    grid-column: 1 / -1;
   }
   .overview-grid {
     grid-template-columns: 1fr;
@@ -1038,19 +1095,19 @@ footer {
     padding: 10px 0;
   }
   .brand {
-    gap: 7px;
-    font-size: 24px;
+    gap: 0;
   }
-  .brand span {
-    max-width: 92px;
-    font-size: 11px;
+  .brand-logo {
+    width: 138px;
   }
   .app-header .month {
     gap: 6px;
     font-size: 12px;
   }
   .app-header .month input {
-    width: 144px;
+    width: 184px;
+    min-width: 184px;
+    flex-basis: 184px;
     padding: 7px 8px;
     min-height: 40px;
   }
@@ -1073,31 +1130,32 @@ footer {
     padding: 8px 10px;
     font-size: 13px;
   }
-  .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .projection-month-card {
+    padding: 13px 14px;
+  }
+  .projection-values dt {
+    font-size: 12px;
+  }
+  .projection-values dd {
+    font-size: 15px;
+  }
+  .actual-metric-grid {
     gap: 8px;
-    margin-bottom: 10px;
   }
-  .monthly-metrics {
-    display: contents;
-  }
-  .metric {
-    min-height: 101px;
+  .actual-metric-grid .metric {
+    min-height: 83px;
     padding: 11px 10px;
     border-radius: 10px;
     gap: 4px;
   }
-  .metrics .metric.featured {
-    min-height: 101px;
-  }
-  .metric > span {
+  .actual-metric-grid .metric > span {
     font-size: 12px;
     line-height: 1.25;
   }
-  .metric strong {
+  .actual-metric-grid .metric strong {
     font-size: clamp(16px, 4.7vw, 20px);
   }
-  .metric small {
+  .actual-metric-grid .metric small {
     font-size: 10px;
     line-height: 1.25;
   }
@@ -1200,7 +1258,7 @@ footer {
     line-height: 1.4;
   }
   .row-value,
-  .account-balance {
+  .invoice-total {
     font-size: 12px;
   }
   .occurrence-actions {

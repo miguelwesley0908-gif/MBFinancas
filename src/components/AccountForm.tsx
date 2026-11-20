@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { cents, uid, type Account } from "../domain";
+import { uid, type Account } from "../domain";
 
 type AccountFormProps = {
   account?: Account;
@@ -46,10 +46,7 @@ export function AccountForm({
         name,
         type: selectedType,
         archived: account?.archived ?? false,
-        opening:
-          selectedType === "card"
-            ? 0
-            : cents(String(values.get("opening") ?? "")),
+        opening: selectedType === "card" ? 0 : (account?.opening ?? 0),
         closing:
           selectedType === "card"
             ? Number(values.get("closing"))
@@ -148,19 +145,7 @@ export function AccountForm({
               />
             </label>
           </>
-        ) : (
-          <label>
-            Saldo inicial (R$)
-            <input
-              name="opening"
-              type="number"
-              min="0"
-              step=".01"
-              required
-              defaultValue={account ? account.opening / 100 : ""}
-            />
-          </label>
-        )}
+        ) : null}
         <div className="form-actions">
           <button>{account ? "Salvar alterações" : "Cadastrar"}</button>
         </div>

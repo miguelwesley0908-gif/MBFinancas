@@ -1,6 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
-  balance,
   groups,
   money,
   today,
@@ -653,11 +652,6 @@ export function AccountsSection({
                 : "Conta bancária"}
         </small>
       </div>
-      {account.type !== "card" && (
-        <strong className="account-balance">
-          {money(balance(data, account))}
-        </strong>
-      )}
       <div className="actions">
         {archived ? (
           <button
@@ -700,8 +694,8 @@ export function AccountsSection({
         <div>
           <h2>Contas e cartões</h2>
           <small>
-            Saldo disponível de contas e dinheiro; cartões identificados pelo
-            nome.
+            Contas e cartões para identificar movimentações, transferências e
+            pagamentos.
           </small>
         </div>
         <button className="text-button" onClick={onAddAccount}>
@@ -838,9 +832,7 @@ export function InvoicesSection({
                   </small>
                 </div>
               </div>
-              <strong className="account-balance">
-                {money(invoice.total)}
-              </strong>
+              <strong className="invoice-total">{money(invoice.total)}</strong>
               <span
                 className={`badge ${status === "Paga" ? "paid" : status === "Atrasada" ? "late" : status === "Prevista" ? "forecast-badge" : ""}`}
               >
@@ -983,7 +975,7 @@ export function InvoicesSection({
                         </small>
                       </div>
                     </div>
-                    <strong className="account-balance">
+                    <strong className="invoice-total">
                       {money(invoice.total)}
                     </strong>
                     {record && (

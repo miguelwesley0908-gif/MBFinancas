@@ -450,6 +450,36 @@ export function expenseTotalForMonth(data: Data, month: string): number {
     .reduce((sum, invoice) => sum + invoice.total, 0);
   return cashAndBank + cardPurchases + manualTotals;
 }
+export function projectedExpenseTotalForMonth(data: Data, month: string) {
+  const plannedInvoices = invoiceForecasts(data, month);
+  const invoicesAlreadyRepresented = new Set([
+    ...invoices(data)
+      .filter((invoice) => invoice.competence === month)
+      .map((invoice) => invoice.card.id),
+    ...plannedInvoices.map((invoice) => invoice.card.id),
+  ]);
+  const recurringForecast = data.recurrences
+    .flatMap((recurrence) => occurrenceForMonth(recurrence, month, data))
+    .reduce((sum, occurrence) => {
+      if (occurrence.status === "skipped") return sum;
+      const account = data.accounts.find(
+        (item) => item.id === occurrence.account,
+      );
+      if (account?.type === "card") {
+        return invoicesAlreadyRepresented.has(account.id)
+          ? sum
+          : sum + occurrence.amount;
+      }
+      return occurrence.status === "pending" ? sum + occurrence.amount : sum;
+    }, 0);
+  const plannedInvoiceTotal = plannedInvoices.reduce(
+    (sum, invoice) => sum + invoice.total,
+    0,
+  );
+  return (
+    expenseTotalForMonth(data, month) + recurringForecast + plannedInvoiceTotal
+  );
+}
 export type OccurrenceChanges = Pick<
   RecurrenceOverride,
   "date" | "amount" | "category" | "account" | "description"

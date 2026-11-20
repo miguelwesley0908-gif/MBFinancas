@@ -144,11 +144,6 @@ td {
 td strong {
   display: block;
 }
-footer {
-  font-size: 12px;
-  color: #718071;
-  padding: 28px 0;
-}
 ::selection {
   background: #ddebd6;
 }

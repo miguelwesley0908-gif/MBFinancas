@@ -6,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  balance,
   cents,
   expenseTotalForMonth,
   initial,
@@ -15,6 +14,7 @@ import {
   money,
   nextUnsettledOccurrence,
   occurrenceForMonth,
+  projectedExpenseTotalForMonth,
   reviseOccurrence,
   schedule,
   setRecurrenceStatus,
@@ -39,6 +39,7 @@ import {
   RecurringForecastSection,
   SettingsSection,
 } from "./components/FinanceSections";
+import { BrandLogo } from "./components/BrandLogo";
 import { AccountForm } from "./components/AccountForm";
 import { EntryForm } from "./components/EntryForm";
 import { RecurrenceForm } from "./components/RecurrenceForm";
@@ -76,6 +77,15 @@ const monthOffset = (month: string, offset: number) => {
   const [year, value] = month.split("-").map(Number);
   const date = new Date(Date.UTC(year, value - 1 + offset, 1));
   return date.toISOString().slice(0, 7);
+};
+const monthTitle = (month: string) => {
+  const [year, value] = month.split("-").map(Number);
+  const title = new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, value - 1, 1)));
+  return title.charAt(0).toLocaleUpperCase("pt-BR") + title.slice(1);
 };
 const validMonth = (value: string | null) =>
   value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : monthNow();
@@ -207,23 +217,18 @@ export function FinanceHome({
       ]),
     ).values(),
   ].sort((a, b) => a.date.localeCompare(b.date));
-  const bankBalance = data.accounts
-    .filter((account) => account.type !== "card")
-    .reduce((sum, account) => sum + balance(data, account), 0);
   const monthlyIncome = monthlyEntries
     .filter((entry) => entry.type === "income")
     .reduce((sum, entry) => sum + entry.amount, 0);
   const monthlyExpenses = expenseTotalForMonth(data, month);
+  const projectedExpenses = projectedExpenseTotalForMonth(data, month);
+  const nextProjectedExpenses = projectedExpenseTotalForMonth(data, nextMonth);
   const outstandingInvoices = invoiceBills
     .filter((invoice) => invoice.source !== "forecast")
     .reduce(
       (sum, invoice) => sum + Math.max(0, invoice.total - invoice.paid),
       0,
     );
-  const forecastTotal = invoiceBills
-    .filter((invoice) => invoice.source === "forecast")
-    .reduce((sum, invoice) => sum + invoice.total, 0);
-
   const pendingInvoiceRows = allInvoices
     .filter(
       (invoice) =>
@@ -1139,7 +1144,7 @@ export function FinanceHome({
     <main className="finance-home">
       <header className="app-header">
         <div className="brand brand-inline">
-          mb<span>Finanças da casa</span>
+          <BrandLogo />
         </div>
         <label className="month">
           Mês
@@ -1218,27 +1223,96 @@ export function FinanceHome({
       {activeView === "overview" && (
         <>
           <section
-            className="metrics compact-metrics"
-            aria-label="Resumo financeiro"
+            className="projection-panel panel"
+            aria-labelledby="projection-title"
           >
-            <article className="metric featured">
-              <span>Saldo atual das contas</span>
-              <strong>{money(bankBalance)}</strong>
-              <small>Contas e dinheiro, sem previsões</small>
-            </article>
-            <div className="monthly-metrics">
+            <div className="section-title">
+              <div>
+                <h2 id="projection-title">Previsão mensal</h2>
+                <small>
+                  Projeção para o mês selecionado e o próximo, baseada na renda
+                  informada e nos compromissos registrados.
+                </small>
+              </div>
+            </div>
+            <div className="projection-month-grid">
+              {[
+                {
+                  month,
+                  label: "Mês selecionado",
+                  expenses: projectedExpenses,
+                },
+                {
+                  month: nextMonth,
+                  label: "Próximo mês",
+                  expenses: nextProjectedExpenses,
+                },
+              ].map((projection) => (
+                <article
+                  className="projection-month-card"
+                  key={projection.month}
+                >
+                  <div className="projection-month-heading">
+                    <small>{projection.label}</small>
+                    <h3>{monthTitle(projection.month)}</h3>
+                  </div>
+                  <dl className="projection-values">
+                    <div>
+                      <dt>Renda prevista</dt>
+                      <dd>{money(data.income)}</dd>
+                    </div>
+                    <div>
+                      <dt>Despesas projetadas</dt>
+                      <dd>{money(projection.expenses)}</dd>
+                    </div>
+                    <div className="projection-margin">
+                      <dt>Margem projetada</dt>
+                      <dd
+                        className={
+                          data.income - projection.expenses < 0
+                            ? "negative"
+                            : "positive"
+                        }
+                      >
+                        {money(data.income - projection.expenses)}
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+            <details className="projection-explainer">
+              <summary>Como calculamos a projeção</summary>
+              <p>
+                A renda prevista vem de “Renda mensal prevista” nas
+                configurações. As despesas projetadas somam os gastos já
+                registrados no mês, recorrências ainda pendentes e previsões
+                ativas de faturas sem lançamentos. Uma fatura já representada
+                não soma novamente as recorrências daquele cartão. A margem é a
+                renda prevista menos as despesas projetadas. Os valores
+                realizados aparecem separadamente abaixo.
+              </p>
+            </details>
+          </section>
+
+          <section className="actual-summary" aria-labelledby="actual-title">
+            <div className="section-title">
+              <div>
+                <h2 id="actual-title">Realizado no mês selecionado</h2>
+                <small>Somente receitas e despesas já registradas.</small>
+              </div>
+            </div>
+            <div className="actual-metric-grid">
               <article className="metric income-metric">
-                <span>Receitas do mês</span>
+                <span>Receitas registradas</span>
                 <strong>{money(monthlyIncome)}</strong>
-                <small>Entradas registradas</small>
               </article>
               <article className="metric expense-metric">
-                <span>Despesas do mês</span>
+                <span>Despesas registradas</span>
                 <strong>{money(monthlyExpenses)}</strong>
-                <small>Inclui compras e faturas dos cartões</small>
               </article>
               <article className="metric result-metric">
-                <span>Resultado do mês</span>
+                <span>Resultado realizado</span>
                 <strong
                   className={
                     monthlyIncome - monthlyExpenses < 0
@@ -1248,20 +1322,15 @@ export function FinanceHome({
                 >
                   {money(monthlyIncome - monthlyExpenses)}
                 </strong>
-                <small>Receitas menos despesas registradas</small>
               </article>
             </div>
           </section>
+
           <div className="dashboard-note">
-            <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
-            <details>
-              <summary>Como são calculados</summary>
-              <p>
-                {forecastTotal
-                  ? `${money(forecastTotal)} previstos ficam fora do saldo e das despesas até serem confirmados.`
-                  : "Faturas em aberto são agrupadas pelo vencimento; despesas entram pela competência da fatura."}
-              </p>
-            </details>
+            <strong>
+              Faturas registradas em aberto: {money(outstandingInvoices)}
+            </strong>
+            <span>Despesas de cartão entram pela competência da fatura.</span>
           </div>
           <div className="overview-grid">
             <MovementsSection
@@ -1361,14 +1430,6 @@ export function FinanceHome({
           />
         </>
       )}
-      <footer>
-        MB Finanças ·{" "}
-        {shared
-          ? "Casa compartilhada · atualização em até 15 segundos"
-          : "Dados salvos neste navegador"}
-        {busy ? " · Salvando…" : ""}
-      </footer>
-
       <nav className="mobile-bottom-nav" aria-label="Navegação principal">
         {(
           [

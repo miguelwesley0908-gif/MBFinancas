@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import { initial, validate, upgradeData, type Data } from "./domain";
 import { FinanceHome } from "./FinanceHome";
+import { BrandLogo } from "./components/BrandLogo";
 import "./App.css";
 
 const STORAGE = "mbfinancas.v1";
@@ -222,9 +223,10 @@ function App() {
         let message = error.message;
         const context = (error as { context?: unknown }).context;
         if (context instanceof Response) {
-          const body = (await context.clone().json().catch(() => null)) as
-            | { error?: unknown }
-            | null;
+          const body = (await context
+            .clone()
+            .json()
+            .catch(() => null)) as { error?: unknown } | null;
           if (typeof body?.error === "string") message = body.error;
         }
         throw new Error(message);
@@ -297,7 +299,7 @@ function App() {
       <main className="auth-shell">
         <section className="panel auth">
           <div className="brand">
-            mb<span>Finanças da casa</span>
+            <BrandLogo />
           </div>
           <h1>
             {authMode === "signup"
