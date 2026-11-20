@@ -1,7 +1,7 @@
 .finance-home {
-  width: min(100% - 48px, 1600px);
+  width: min(100% - 40px, 1480px);
   margin: 0 auto;
-  padding: 0 0 24px;
+  padding: 0 0 28px;
 }
 .brand {
   color: #185b45;
@@ -22,6 +22,10 @@
   line-height: 1.35;
 }
 .app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
   min-height: 76px;
   border-bottom: 1px solid #dde4d9;
 }
@@ -47,7 +51,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  padding: 28px 0 22px;
+  padding: 24px 0 18px;
 }
 .heading p {
   color: #6d7d6c;
@@ -83,13 +87,25 @@
 .module-nav button:hover {
   background: #eaf1e6;
 }
+.module-nav button.active {
+  background: #eaf1e6;
+  border-color: #a7bca5;
+  color: #204d3b;
+}
+.module-nav .invoice-nav-button {
+  margin-left: auto;
+}
+.mobile-bottom-nav {
+  display: none;
+}
 .dashboard-note {
   display: flex;
   align-items: center;
-  gap: 8px 18px;
+  justify-content: space-between;
+  gap: 8px 16px;
   flex-wrap: wrap;
-  margin: -4px 0 18px;
-  padding: 10px 14px;
+  margin: -4px 0 14px;
+  padding: 9px 13px;
   border: 1px solid #dce7d8;
   border-radius: 10px;
   background: #f9fbf7;
@@ -99,16 +115,131 @@
 .dashboard-note strong {
   color: #204d3b;
 }
+.dashboard-note details {
+  min-width: 0;
+  color: #65766a;
+  font-size: 13px;
+}
+.dashboard-note summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #31694c;
+  font-weight: 600;
+}
+.dashboard-note p {
+  max-width: 620px;
+  margin: 2px 0 4px;
+  line-height: 1.45;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  align-items: start;
+  gap: 14px;
+}
+.overview-grid > .panel {
+  min-width: 0;
+}
+.preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e9ede5;
+  color: #65766a;
+  font-size: 12px;
+}
+.preview-footer .text-button {
+  min-height: 36px;
+  padding: 4px 8px;
+}
+.month-switcher {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 11px;
+  padding: 4px;
+  border: 1px solid #e0e7d9;
+  border-radius: 10px;
+  background: #f7f9f5;
+}
+.month-switcher button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #52685b;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.month-switcher button.active {
+  background: #fff;
+  color: #204d3b;
+  box-shadow: 0 1px 4px #203c3214;
+}
+.quick-links-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.quick-links-panel h2 {
+  margin: 0;
+}
+.quick-links-panel button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.monthly-metrics {
+  display: contents;
+}
+.monthly-metrics .metric {
+  border-top-width: 4px;
+}
+.monthly-metrics .income-metric {
+  border-top-color: #438a62;
+}
+.monthly-metrics .expense-metric {
+  border-top-color: #c5796a;
+}
+.monthly-metrics .result-metric {
+  border-top-color: #6d8b78;
+}
+.metrics .metric.featured {
+  min-height: 132px;
+}
+.recurrence-forecast-panel,
+.section-panel {
+  margin-bottom: 14px;
+}
+.recurrence-forecast-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.quick-links-panel + .section-panel {
+  margin-top: 0;
+}
+.mobile-bottom-nav button:focus-visible,
+.module-nav button:focus-visible {
+  outline: 3px solid #d0a748;
+  outline-offset: 2px;
+}
 .dashboard-note span {
   color: #65766a;
 }
 .recurrence-forecast-panel {
-  margin-bottom: 18px;
-}
-.recurrence-forecast-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  margin-bottom: 14px;
 }
 .recurrence-month-card {
   min-width: 0;
@@ -217,18 +348,6 @@
   margin-bottom: 16px;
   box-shadow: 0 4px 16px #243b2c03;
 }
-.metrics {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 3.1fr);
-  gap: 12px;
-  margin-bottom: 18px;
-}
-.monthly-metrics {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
 .metric {
   min-width: 0;
   padding: 17px 18px;
@@ -261,18 +380,6 @@
 .metric.featured span,
 .metric.featured small {
   color: #c4d7c3;
-}
-.monthly-metrics .metric {
-  border-top-width: 4px;
-}
-.monthly-metrics .income-metric {
-  border-top-color: #438a62;
-}
-.monthly-metrics .expense-metric {
-  border-top-color: #c5796a;
-}
-.monthly-metrics .result-metric {
-  border-top-color: #6d8b78;
 }
 .section-title {
   display: flex;
@@ -850,12 +957,12 @@ footer {
 }
 @media (max-width: 900px) {
   .metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .monthly-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: contents;
   }
-  .recurrence-forecast-grid {
+  .overview-grid {
     grid-template-columns: 1fr;
   }
   .filters {
@@ -868,68 +975,170 @@ footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (max-width: 720px) {
+  .desktop-module-nav {
+    display: none;
+  }
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 20;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid #dce5d9;
+    background: #ffffffed;
+    box-shadow: 0 -5px 18px #203c320c;
+    backdrop-filter: blur(14px);
+  }
+  .mobile-bottom-nav button {
+    min-width: 0;
+    min-height: 54px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #68796d;
+  }
+  .mobile-bottom-nav button > span {
+    font-size: 17px;
+    line-height: 1;
+  }
+  .mobile-bottom-nav button small {
+    color: inherit;
+    font-size: 10px;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+  .mobile-bottom-nav button.active {
+    background: #eaf1e6;
+    color: #204d3b;
+  }
+  .finance-home {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+}
 @media (max-width: 620px) {
   .finance-home {
     width: 100%;
-    padding: 0 15px 18px;
+    padding: 0 15px calc(88px + env(safe-area-inset-bottom));
   }
   .app-header {
-    min-height: 68px;
+    min-height: 62px;
+    flex-wrap: wrap;
+    gap: 7px 10px;
+    padding: 10px 0;
   }
   .brand {
-    font-size: 26px;
+    gap: 7px;
+    font-size: 24px;
   }
   .brand span {
-    max-width: 112px;
-    font-size: 12px;
+    max-width: 92px;
+    font-size: 11px;
   }
   .app-header .month {
-    gap: 8px;
-    font-size: 13px;
+    gap: 6px;
+    font-size: 12px;
   }
   .app-header .month input {
-    width: 160px;
-    padding: 8px 10px;
-    min-height: 44px;
+    width: 144px;
+    padding: 7px 8px;
+    min-height: 40px;
   }
   .heading {
-    align-items: flex-start;
-    padding: 20px 0 16px;
+    align-items: center;
+    gap: 10px;
+    padding: 17px 0 14px;
   }
   .heading h1 {
-    font-size: 27px;
+    font-size: 24px;
   }
   .heading p {
-    max-width: 260px;
-    font-size: 14px;
+    max-width: 235px;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
   }
   .primary-add {
-    min-height: 46px;
-    padding: 9px 13px;
-    font-size: 14px;
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 13px;
   }
   .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .monthly-metrics {
-    grid-template-columns: 1fr;
-    gap: 8px;
+    display: contents;
   }
   .metric {
-    padding: 12px 11px;
+    min-height: 101px;
+    padding: 11px 10px;
     border-radius: 10px;
-    gap: 5px;
+    gap: 4px;
+  }
+  .metrics .metric.featured {
+    min-height: 101px;
   }
   .metric > span {
     font-size: 12px;
+    line-height: 1.25;
   }
   .metric strong {
-    font-size: clamp(17px, 5vw, 21px);
+    font-size: clamp(16px, 4.7vw, 20px);
   }
   .metric small {
+    font-size: 10px;
+    line-height: 1.25;
+  }
+  .dashboard-note {
+    align-items: flex-start;
+    gap: 4px 10px;
+    margin: 0 0 10px;
+    padding: 8px 10px;
     font-size: 12px;
-    line-height: 1.4;
+  }
+  .dashboard-note details {
+    flex-basis: 100%;
+    font-size: 11px;
+  }
+  .dashboard-note summary {
+    min-height: 28px;
+  }
+  .overview-grid {
+    gap: 10px;
+  }
+  .overview-grid > .recurrence-forecast-panel {
+    grid-row: 1;
+  }
+  .overview-grid > .section-panel {
+    grid-row: 2;
+  }
+  .quick-links-panel {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .quick-links-panel button {
+    width: 100%;
+  }
+  .month-switcher {
+    display: grid;
+    width: 100%;
+  }
+  .month-switcher button {
+    padding-inline: 7px;
+    font-size: 12px;
   }
   .panel {
     padding: 15px 13px;

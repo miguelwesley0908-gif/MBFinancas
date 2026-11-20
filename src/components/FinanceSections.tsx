@@ -23,6 +23,8 @@ const dateLabel = (value: string) => value.split("-").reverse().join("/");
 type MovementsProps = {
   data: Data;
   rows: MovementRow[];
+  preview?: boolean;
+  onViewAll?: () => void;
   search: string;
   filterType: string;
   filterCategory: string;
@@ -44,6 +46,8 @@ type MovementsProps = {
 export function MovementsSection({
   data,
   rows,
+  preview = false,
+  onViewAll,
   search,
   filterType,
   filterCategory,
@@ -58,74 +62,82 @@ export function MovementsSection({
   onPayInvoice,
   onRemoveEntry,
 }: MovementsProps) {
+  const displayedRows = preview ? rows.slice(0, 5) : rows;
+
   return (
     <section id="movements" className="panel section-panel">
       <div className="section-title">
         <div>
-          <h2>Movimentações e despesas</h2>
-          <small>
-            Faturas sem pagamento aparecem pelo vencimento; pagamentos ficam na
-            data em que foram registrados.
-          </small>
+          <h2>
+            {preview ? "Movimentações recentes" : "Movimentações e despesas"}
+          </h2>
+          {!preview && (
+            <small>
+              Faturas sem pagamento aparecem pelo vencimento; pagamentos ficam
+              na data em que foram registrados.
+            </small>
+          )}
         </div>
         <span className="count-label">{rows.length}</span>
       </div>
-      <div className="filters">
-        <label className="search-field">
-          Buscar
-          <input
-            aria-label="Buscar movimentações"
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-            placeholder="Descrição ou categoria"
-          />
-        </label>
-        <label>
-          Tipo
-          <select
-            aria-label="Filtrar por tipo"
-            value={filterType}
-            onChange={(event) => onFilterType(event.target.value)}
-          >
-            <option value="">Todos</option>
-            <option value="income">Receita</option>
-            <option value="expense">Despesa</option>
-            <option value="transfer">Transferência</option>
-          </select>
-        </label>
-        <label>
-          Categoria
-          <select
-            aria-label="Filtrar por categoria"
-            value={filterCategory}
-            onChange={(event) => onFilterCategory(event.target.value)}
-          >
-            <option value="">Todas</option>
-            {data.categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Conta ou cartão
-          <select
-            aria-label="Filtrar por conta"
-            value={filterAccount}
-            onChange={(event) => onFilterAccount(event.target.value)}
-          >
-            <option value="">Todos</option>
-            {data.accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {!preview && (
+        <div className="filters">
+          <label className="search-field">
+            Buscar
+            <input
+              aria-label="Buscar movimentações"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder="Descrição ou categoria"
+            />
+          </label>
+          <label>
+            Tipo
+            <select
+              aria-label="Filtrar por tipo"
+              value={filterType}
+              onChange={(event) => onFilterType(event.target.value)}
+            >
+              <option value="">Todos</option>
+              <option value="income">Receita</option>
+              <option value="expense">Despesa</option>
+              <option value="transfer">Transferência</option>
+            </select>
+          </label>
+          <label>
+            Categoria
+            <select
+              aria-label="Filtrar por categoria"
+              value={filterCategory}
+              onChange={(event) => onFilterCategory(event.target.value)}
+            >
+              <option value="">Todas</option>
+              {data.categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Conta ou cartão
+            <select
+              aria-label="Filtrar por conta"
+              value={filterAccount}
+              onChange={(event) => onFilterAccount(event.target.value)}
+            >
+              <option value="">Todos</option>
+              {data.accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
       <div className="compact-list">
-        {rows.map((row) =>
+        {displayedRows.map((row) =>
           row.kind === "invoice" ? (
             <article
               className="list-row invoice-list-row"
@@ -335,6 +347,13 @@ export function MovementsSection({
           </div>
         )}
       </div>
+      {preview && onViewAll && (
+        <div className="preview-footer">
+          <button className="text-button" onClick={onViewAll}>
+            Ver todas as movimentações
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -346,6 +365,8 @@ type RecurrenceOccurrence = {
 
 type RecurringForecastProps = {
   data: Data;
+  preview?: boolean;
+  onViewAll?: () => void;
   currentMonth: string;
   nextMonth: string;
   currentOccurrences: RecurrenceOccurrence[];
@@ -376,6 +397,8 @@ function monthTitle(month: string) {
 
 export function RecurringForecastSection({
   data,
+  preview = false,
+  onViewAll,
   currentMonth,
   nextMonth,
   currentOccurrences,
@@ -384,6 +407,9 @@ export function RecurringForecastSection({
   onEditOccurrence,
   onOccurrenceAction,
 }: RecurringForecastProps) {
+  const [selectedMonth, setSelectedMonth] = useState<"current" | "next">(
+    "current",
+  );
   const renderMonth = (
     month: string,
     label: string,
@@ -399,6 +425,8 @@ export function RecurringForecastSection({
     const pendingCount = items.filter(
       (item) => item.occurrence.status === "pending",
     ).length;
+    const displayedItems = preview ? items.slice(0, 3) : items;
+    const hiddenCount = Math.max(0, items.length - displayedItems.length);
 
     return (
       <section className="recurrence-month-card" key={month}>
@@ -415,7 +443,7 @@ export function RecurringForecastSection({
           </div>
         </div>
         <div className="recurrence-month-list">
-          {items.map(({ occurrence, recurrence }) => {
+          {displayedItems.map(({ occurrence, recurrence }) => {
             const category = data.categories.find(
               (item) => item.id === occurrence.category,
             )?.name;
@@ -502,6 +530,14 @@ export function RecurringForecastSection({
             </p>
           )}
         </div>
+        {preview && hiddenCount > 0 && onViewAll && (
+          <div className="preview-footer">
+            <span>+{hiddenCount} despesas previstas</span>
+            <button className="text-button" onClick={onViewAll}>
+              Ver planejamento
+            </button>
+          </div>
+        )}
       </section>
     );
   };
@@ -510,17 +546,52 @@ export function RecurringForecastSection({
     <section className="panel recurrence-forecast-panel">
       <div className="section-title">
         <div>
-          <h2>Despesas recorrentes</h2>
-          <small>
-            Previsões do mês selecionado e do próximo; não alteram os totais
-            realizados.
-          </small>
+          <h2>{preview ? "Próximas despesas" : "Despesas recorrentes"}</h2>
+          {!preview && (
+            <small>
+              Previsões do mês selecionado e do próximo; não alteram os totais
+              realizados.
+            </small>
+          )}
         </div>
       </div>
-      <div className="recurrence-forecast-grid">
-        {renderMonth(currentMonth, "Mês selecionado", currentOccurrences, true)}
-        {renderMonth(nextMonth, "Próximo mês", nextOccurrences, false)}
+      <div
+        className="month-switcher"
+        role="group"
+        aria-label="Mês das previsões"
+      >
+        <button
+          className={selectedMonth === "current" ? "active" : ""}
+          aria-pressed={selectedMonth === "current"}
+          onClick={() => setSelectedMonth("current")}
+        >
+          {preview ? "Este mês" : monthTitle(currentMonth)}
+        </button>
+        <button
+          className={selectedMonth === "next" ? "active" : ""}
+          aria-pressed={selectedMonth === "next"}
+          onClick={() => setSelectedMonth("next")}
+        >
+          {preview ? "Próximo mês" : monthTitle(nextMonth)}
+        </button>
       </div>
+      <div className="recurrence-forecast-grid">
+        {selectedMonth === "current"
+          ? renderMonth(
+              currentMonth,
+              "Mês selecionado",
+              currentOccurrences,
+              true,
+            )
+          : renderMonth(nextMonth, "Próximo mês", nextOccurrences, false)}
+      </div>
+      {preview && !currentOccurrences.length && !nextOccurrences.length && (
+        <div className="preview-footer">
+          <button className="text-button" onClick={onViewAll}>
+            Abrir planejamento
+          </button>
+        </div>
+      )}
     </section>
   );
 }

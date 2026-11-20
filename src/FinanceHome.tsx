@@ -57,6 +57,7 @@ type Modal =
   | "edit-account"
   | "edit-recurrence"
   | "occurrence";
+type MainView = "overview" | "movements" | "accounts" | "planning" | "settings";
 type Props = {
   data: Data;
   save: (next: Data) => Promise<boolean>;
@@ -130,6 +131,7 @@ export function FinanceHome({
   const [month, setMonth] = useState(() =>
     validMonth(localStorage.getItem("mbfinancas.month.v1")),
   );
+  const [activeView, setActiveView] = useState<MainView>("overview");
   const [modal, setModal] = useState<Modal | null>(null);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -152,6 +154,10 @@ export function FinanceHome({
   useEffect(() => {
     localStorage.setItem("mbfinancas.month.v1", month);
   }, [month]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeView]);
 
   const monthlyEntries = data.entries.filter((entry) =>
     entry.date.startsWith(month),
@@ -289,6 +295,10 @@ export function FinanceHome({
     setReturnToInvoices(false);
     setNewInvoiceCardId("");
     setMessage("");
+  }
+  function openInvoices() {
+    setReturnToInvoices(false);
+    setModal("invoices");
   }
   function choose(kind: Modal) {
     setModal(kind);
@@ -1060,6 +1070,70 @@ export function FinanceHome({
         : modal === "expense"
           ? "expense"
           : undefined;
+  const viewCopy: Record<MainView, { title: string; description: string }> = {
+    overview: {
+      title: "Minhas finanças",
+      description: `Resumo da casa em ${month}.`,
+    },
+    movements: {
+      title: "Movimentações",
+      description: `Entradas, despesas e faturas de ${month}.`,
+    },
+    accounts: {
+      title: "Contas e cartões",
+      description: "Saldos bancários e cartões cadastrados.",
+    },
+    planning: {
+      title: "Planejamento",
+      description: "Previsões, recorrências e faturas da casa.",
+    },
+    settings: {
+      title: "Mais opções",
+      description: "Faturas, preferências e dados da casa.",
+    },
+  };
+  const movementHandlers = {
+    search,
+    filterType,
+    filterCategory,
+    filterAccount,
+    onSearch: setSearch,
+    onFilterType: setFilterType,
+    onFilterCategory: setFilterCategory,
+    onFilterAccount: setFilterAccount,
+    onEditEntry: (entry: Entry) => {
+      setEditingEntry(entry);
+      setModal("edit-entry");
+    },
+    onEditInvoice: (invoice: ManualInvoice) => {
+      setEditingEntry(null);
+      setEditingInvoice(invoice);
+      setModal("expense");
+    },
+    onDeleteInvoice: (invoice: ManualInvoice) =>
+      void deleteManualInvoice(invoice),
+    onPayInvoice: (event: FormEvent<HTMLFormElement>, invoice: InvoiceView) =>
+      void payInvoice(event, invoice),
+    onRemoveEntry: (entry: Entry) => void removeEntry(entry),
+  };
+  const recurrenceHandlers = {
+    onMarkOccurrence: (
+      occurrence: ExpenseOccurrence,
+      recurrence: ExpenseRecurrence,
+    ) => void markOccurrencePaid(occurrence, recurrence),
+    onEditOccurrence: (
+      occurrence: ExpenseOccurrence,
+      recurrence: ExpenseRecurrence,
+    ) => {
+      setSelectedOccurrence({ occurrence, recurrence });
+      setModal("occurrence");
+    },
+    onOccurrenceAction: (
+      occurrence: ExpenseOccurrence,
+      recurrence: ExpenseRecurrence,
+      action: "skip" | "restore",
+    ) => void occurrenceAction(occurrence, recurrence, action),
+  };
 
   return (
     <main className="finance-home">
@@ -1101,154 +1175,192 @@ export function FinanceHome({
       <div className="heading">
         <div>
           <span className="eyebrow">MB FINANÇAS</span>
-          <h1>Minhas finanças</h1>
-          <p>O resumo da casa, com as movimentações de {month}.</p>
+          <h1>{viewCopy[activeView].title}</h1>
+          <p>{viewCopy[activeView].description}</p>
         </div>
         <button className="primary-add" onClick={openAdd} disabled={busy}>
           + Adicionar
         </button>
       </div>
 
-      <nav className="module-nav" aria-label="Módulos do aplicativo">
-        <a href="#movements">Movimentações</a>
+      <nav
+        className="module-nav desktop-module-nav"
+        aria-label="Módulos do aplicativo"
+      >
+        {(
+          [
+            ["overview", "Resumo"],
+            ["movements", "Movimentações"],
+            ["accounts", "Contas e cartões"],
+            ["planning", "Planejamento"],
+            ["settings", "Configurações"],
+          ] as [MainView, string][]
+        ).map(([view, label]) => (
+          <button
+            className={activeView === view ? "active" : ""}
+            aria-current={activeView === view ? "page" : undefined}
+            key={view}
+            type="button"
+            onClick={() => setActiveView(view)}
+          >
+            {label}
+          </button>
+        ))}
         <button
+          className="invoice-nav-button"
           type="button"
-          onClick={() => {
-            setReturnToInvoices(false);
-            setModal("invoices");
-          }}
+          onClick={openInvoices}
         >
           Faturas
         </button>
-        <a href="#accounts">Contas e cartões</a>
-        <a href="#planning">Planejamento</a>
-        <a href="#settings">Configurações</a>
       </nav>
 
-      <section
-        className="metrics compact-metrics"
-        aria-label="Resumo financeiro"
-      >
-        <article className="metric featured">
-          <span>Saldo atual das contas</span>
-          <strong>{money(bankBalance)}</strong>
-          <small>Contas e dinheiro, sem previsões</small>
-        </article>
-        <div className="monthly-metrics">
-          <article className="metric income-metric">
-            <span>Receitas do mês</span>
-            <strong>{money(monthlyIncome)}</strong>
-            <small>Entradas registradas</small>
-          </article>
-          <article className="metric expense-metric">
-            <span>Despesas do mês</span>
-            <strong>{money(monthlyExpenses)}</strong>
-            <small>Inclui compras e faturas dos cartões</small>
-          </article>
-          <article className="metric result-metric">
-            <span>Resultado do mês</span>
-            <strong
-              className={
-                monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"
-              }
-            >
-              {money(monthlyIncome - monthlyExpenses)}
-            </strong>
-            <small>Receitas menos despesas registradas</small>
-          </article>
-        </div>
-      </section>
-      <div className="dashboard-note">
-        <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
-        <span>
-          {forecastTotal
-            ? `Faturas em aberto até este mês; ${money(forecastTotal)} previstos não alteram o saldo nem as despesas até serem confirmados.`
-            : "Faturas em aberto são agrupadas pelo vencimento; despesas entram pela competência da fatura."}
-        </span>
-      </div>
+      {activeView === "overview" && (
+        <>
+          <section
+            className="metrics compact-metrics"
+            aria-label="Resumo financeiro"
+          >
+            <article className="metric featured">
+              <span>Saldo atual das contas</span>
+              <strong>{money(bankBalance)}</strong>
+              <small>Contas e dinheiro, sem previsões</small>
+            </article>
+            <div className="monthly-metrics">
+              <article className="metric income-metric">
+                <span>Receitas do mês</span>
+                <strong>{money(monthlyIncome)}</strong>
+                <small>Entradas registradas</small>
+              </article>
+              <article className="metric expense-metric">
+                <span>Despesas do mês</span>
+                <strong>{money(monthlyExpenses)}</strong>
+                <small>Inclui compras e faturas dos cartões</small>
+              </article>
+              <article className="metric result-metric">
+                <span>Resultado do mês</span>
+                <strong
+                  className={
+                    monthlyIncome - monthlyExpenses < 0
+                      ? "negative"
+                      : "positive"
+                  }
+                >
+                  {money(monthlyIncome - monthlyExpenses)}
+                </strong>
+                <small>Receitas menos despesas registradas</small>
+              </article>
+            </div>
+          </section>
+          <div className="dashboard-note">
+            <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
+            <details>
+              <summary>Como são calculados</summary>
+              <p>
+                {forecastTotal
+                  ? `${money(forecastTotal)} previstos ficam fora do saldo e das despesas até serem confirmados.`
+                  : "Faturas em aberto são agrupadas pelo vencimento; despesas entram pela competência da fatura."}
+              </p>
+            </details>
+          </div>
+          <div className="overview-grid">
+            <MovementsSection
+              data={data}
+              rows={visibleRows}
+              preview
+              onViewAll={() => setActiveView("movements")}
+              {...movementHandlers}
+            />
+            <RecurringForecastSection
+              data={data}
+              currentMonth={month}
+              nextMonth={nextMonth}
+              currentOccurrences={currentRecurringOccurrences}
+              nextOccurrences={nextRecurringOccurrences}
+              preview
+              onViewAll={() => setActiveView("planning")}
+              {...recurrenceHandlers}
+            />
+          </div>
+        </>
+      )}
 
-      <RecurringForecastSection
-        data={data}
-        currentMonth={month}
-        nextMonth={nextMonth}
-        currentOccurrences={currentRecurringOccurrences}
-        nextOccurrences={nextRecurringOccurrences}
-        onMarkOccurrence={(occurrence, recurrence) =>
-          void markOccurrencePaid(occurrence, recurrence)
-        }
-        onEditOccurrence={(occurrence, recurrence) => {
-          setSelectedOccurrence({ occurrence, recurrence });
-          setModal("occurrence");
-        }}
-        onOccurrenceAction={(occurrence, recurrence, action) =>
-          void occurrenceAction(occurrence, recurrence, action)
-        }
-      />
+      {activeView === "movements" && (
+        <MovementsSection
+          data={data}
+          rows={visibleRows}
+          {...movementHandlers}
+        />
+      )}
 
-      <MovementsSection
-        data={data}
-        rows={visibleRows}
-        search={search}
-        filterType={filterType}
-        filterCategory={filterCategory}
-        filterAccount={filterAccount}
-        onSearch={setSearch}
-        onFilterType={setFilterType}
-        onFilterCategory={setFilterCategory}
-        onFilterAccount={setFilterAccount}
-        onEditEntry={(entry) => {
-          setEditingEntry(entry);
-          setModal("edit-entry");
-        }}
-        onEditInvoice={(invoice) => {
-          setEditingEntry(null);
-          setEditingInvoice(invoice);
-          setModal("expense");
-        }}
-        onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
-        onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
-        onRemoveEntry={(entry) => void removeEntry(entry)}
-      />
-      <AccountsSection
-        data={data}
-        onAddAccount={() => choose("bank")}
-        onEditAccount={(account) => {
-          setEditingAccount(account);
-          setModal("edit-account");
-        }}
-        onDeleteAccount={(account) => void deleteAccount(account)}
-        onArchiveAccount={(account) => void archiveAccount(account)}
-        onRestoreAccount={(account) => void restoreAccount(account)}
-      />
+      {activeView === "accounts" && (
+        <AccountsSection
+          data={data}
+          onAddAccount={() => choose("bank")}
+          onEditAccount={(account) => {
+            setEditingAccount(account);
+            setModal("edit-account");
+          }}
+          onDeleteAccount={(account) => void deleteAccount(account)}
+          onArchiveAccount={(account) => void archiveAccount(account)}
+          onRestoreAccount={(account) => void restoreAccount(account)}
+        />
+      )}
 
-      <PlanningSection
-        data={data}
-        month={month}
-        onNewRecurrence={() => choose("recurrence")}
-        onEditRecurrence={(recurrence) => {
-          setEditingRecurrence(recurrence);
-          setModal("edit-recurrence");
-        }}
-        onRecurrenceAction={(recurrence, action) =>
-          void recurrenceAction(recurrence, action)
-        }
-        onInvoicePlanAction={(plan, action) =>
-          void invoicePlanAction(plan, action)
-        }
-      />
-      <SettingsSection
-        data={data}
-        shared={shared}
-        busy={busy}
-        onSaveIncome={(value) => void saveIncome(value)}
-        onAddCategory={(event) => void addCategory(event)}
-        onDeleteCategory={(id) => void deleteCategory(id)}
-        onExport={exportBackup}
-        onRestoreFile={restoreFile}
-        onInvite={onInvite}
-        onSignOut={onSignOut}
-        onMessage={setMessage}
-      />
+      {activeView === "planning" && (
+        <>
+          <RecurringForecastSection
+            data={data}
+            currentMonth={month}
+            nextMonth={nextMonth}
+            currentOccurrences={currentRecurringOccurrences}
+            nextOccurrences={nextRecurringOccurrences}
+            {...recurrenceHandlers}
+          />
+          <PlanningSection
+            data={data}
+            month={month}
+            onNewRecurrence={() => choose("recurrence")}
+            onEditRecurrence={(recurrence) => {
+              setEditingRecurrence(recurrence);
+              setModal("edit-recurrence");
+            }}
+            onRecurrenceAction={(recurrence, action) =>
+              void recurrenceAction(recurrence, action)
+            }
+            onInvoicePlanAction={(plan, action) =>
+              void invoicePlanAction(plan, action)
+            }
+          />
+        </>
+      )}
+
+      {activeView === "settings" && (
+        <>
+          <section className="panel quick-links-panel">
+            <div>
+              <h2>Faturas</h2>
+              <small>Consulte faturas abertas, pagas e previstas.</small>
+            </div>
+            <button type="button" onClick={openInvoices}>
+              Abrir faturas
+            </button>
+          </section>
+          <SettingsSection
+            data={data}
+            shared={shared}
+            busy={busy}
+            onSaveIncome={(value) => void saveIncome(value)}
+            onAddCategory={(event) => void addCategory(event)}
+            onDeleteCategory={(id) => void deleteCategory(id)}
+            onExport={exportBackup}
+            onRestoreFile={restoreFile}
+            onInvite={onInvite}
+            onSignOut={onSignOut}
+            onMessage={setMessage}
+          />
+        </>
+      )}
       <footer>
         MB Finanças ·{" "}
         {shared
@@ -1256,6 +1368,30 @@ export function FinanceHome({
           : "Dados salvos neste navegador"}
         {busy ? " · Salvando…" : ""}
       </footer>
+
+      <nav className="mobile-bottom-nav" aria-label="Navegação principal">
+        {(
+          [
+            ["overview", "Resumo", "⌂", "Resumo"],
+            ["movements", "Movimentos", "↕", "Movimentações"],
+            ["accounts", "Cartões", "▣", "Contas e cartões"],
+            ["planning", "Plano", "◷", "Planejamento"],
+            ["settings", "Mais", "•••", "Mais opções"],
+          ] as [MainView, string, string, string][]
+        ).map(([view, label, icon, accessibleLabel]) => (
+          <button
+            className={activeView === view ? "active" : ""}
+            aria-current={activeView === view ? "page" : undefined}
+            aria-label={accessibleLabel}
+            key={view}
+            type="button"
+            onClick={() => setActiveView(view)}
+          >
+            <span aria-hidden="true">{icon}</span>
+            <small>{label}</small>
+          </button>
+        ))}
+      </nav>
 
       <Dialog open={modal !== null} onClose={closeModal}>
         {modal === "invoices" && (
