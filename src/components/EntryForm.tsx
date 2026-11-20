@@ -15,6 +15,7 @@ type EntryFormProps = {
   invoice?: ManualInvoice | null;
   month: string;
   invoiceCardId?: string;
+  startAsInvoice?: boolean;
   fixedType?: Entry["type"];
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
@@ -51,6 +52,7 @@ export function EntryForm({
   invoice,
   month,
   invoiceCardId,
+  startAsInvoice = false,
   fixedType,
   onSubmit,
   onSaveInvoice,
@@ -58,7 +60,7 @@ export function EntryForm({
   onError,
 }: EntryFormProps) {
   const initialMode: ExpenseMode =
-    invoice || invoiceCardId
+    invoice || invoiceCardId || startAsInvoice
       ? "card-invoice"
       : editing?.type === "expense" &&
           data.accounts.find((item) => item.id === editing.account)?.type ===
@@ -182,19 +184,22 @@ export function EntryForm({
         <div>
           <h2>
             {invoice
-              ? "Editar despesa · fatura"
+              ? "Editar fatura"
               : editing
                 ? "Editar movimentação"
-                : type === "expense"
-                  ? "Registrar despesa"
-                  : type === "income"
-                    ? "Registrar receita"
-                    : "Registrar transferência"}
+                : type === "expense" && mode === "card-invoice"
+                  ? "Registrar fatura"
+                  : type === "expense"
+                    ? "Registrar despesa"
+                    : type === "income"
+                      ? "Registrar receita"
+                      : "Registrar transferência"}
           </h2>
           {type === "expense" && (
             <p className="muted">
-              Escolha como quer lançar. Compras e faturas do cartão aparecem na
-              mesma lista de despesas.
+              {mode === "card-invoice"
+                ? "Informe o total e o vencimento da fatura. Não lance as mesmas compras novamente."
+                : "Escolha como quer lançar. Compras e faturas do cartão aparecem na mesma lista de despesas."}
             </p>
           )}
         </div>
@@ -460,14 +465,16 @@ export function EntryForm({
         <div className="form-actions">
           <button disabled={!canSubmit}>
             {invoice
-              ? "Salvar alterações"
+              ? "Salvar fatura"
               : editing
                 ? "Salvar alterações"
-                : type === "expense"
-                  ? "Salvar despesa"
-                  : type === "income"
-                    ? "Salvar receita"
-                    : "Salvar transferência"}
+                : type === "expense" && mode === "card-invoice"
+                  ? "Salvar fatura"
+                  : type === "expense"
+                    ? "Salvar despesa"
+                    : type === "income"
+                      ? "Salvar receita"
+                      : "Salvar transferência"}
           </button>
         </div>
       </form>

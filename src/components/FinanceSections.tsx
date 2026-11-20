@@ -88,7 +88,8 @@ export function MovementsSection({
         <div>
           <h2>Movimentações e despesas</h2>
           <small>
-            Despesas, receitas, pagamentos e transferências em uma única lista.
+            Faturas sem pagamento aparecem pelo vencimento; pagamentos ficam na
+            data em que foram registrados.
           </small>
         </div>
         <span className="count-label">{rows.length}</span>
@@ -642,7 +643,8 @@ export function InvoicesSection({
         <div>
           <h2>Faturas de {month}</h2>
           <small>
-            O valor confirmado é a referência. Previsões não alteram o saldo.
+            Em aberto pelo vencimento; pagas pela data do pagamento. Previsões
+            não alteram saldo nem despesa.
           </small>
         </div>
         <div className="actions">

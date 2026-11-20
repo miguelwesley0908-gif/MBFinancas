@@ -45,6 +45,7 @@ import { RecurrenceForm } from "./components/RecurrenceForm";
 type Modal =
   | "menu"
   | "invoices"
+  | "invoice-entry"
   | "expense"
   | "income"
   | "transfer"
@@ -69,6 +70,11 @@ type Props = {
 };
 
 const monthNow = () => today().slice(0, 7);
+const monthOffset = (month: string, offset: number) => {
+  const [year, value] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, value - 1 + offset, 1));
+  return date.toISOString().slice(0, 7);
+};
 const validMonth = (value: string | null) =>
   value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : monthNow();
 const dateLabel = (value: string) => value.split("-").reverse().join("/");
@@ -155,10 +161,33 @@ export function FinanceHome({
       recurrence,
     })),
   );
-  const currentBills = [
-    ...invoices(data).filter((invoice) => invoice.competence === month),
-    ...invoiceForecasts(data, month),
-  ];
+  const allInvoices = invoices(data);
+  const paymentKeysThisMonth = new Set(
+    data.entries
+      .filter(
+        (entry) =>
+          entry.type === "transfer" &&
+          !!entry.invoice &&
+          entry.date.startsWith(month),
+      )
+      .map((entry) => entry.invoice),
+  );
+  const invoicesForMonth = allInvoices.filter(
+    (invoice) =>
+      paymentKeysThisMonth.has(invoice.key) ||
+      (invoice.paid < invoice.total && invoice.date.slice(0, 7) <= month),
+  );
+  const forecastsDueThisMonth = [0, 1, 2]
+    .flatMap((offset) => invoiceForecasts(data, monthOffset(month, -offset)))
+    .filter((invoice) => invoice.date.slice(0, 7) === month);
+  const invoiceBills = [
+    ...new Map(
+      [...invoicesForMonth, ...forecastsDueThisMonth].map((invoice) => [
+        invoice.key,
+        invoice,
+      ]),
+    ).values(),
+  ].sort((a, b) => a.date.localeCompare(b.date));
   const bankBalance = data.accounts
     .filter((account) => account.type !== "card")
     .reduce((sum, account) => sum + balance(data, account), 0);
@@ -166,22 +195,38 @@ export function FinanceHome({
     .filter((entry) => entry.type === "income")
     .reduce((sum, entry) => sum + entry.amount, 0);
   const monthlyExpenses = expenseTotalForMonth(data, month);
-  const outstandingInvoices = currentBills
+  const outstandingInvoices = invoiceBills
     .filter((invoice) => invoice.source !== "forecast")
     .reduce(
       (sum, invoice) => sum + Math.max(0, invoice.total - invoice.paid),
       0,
     );
-  const forecastTotal = currentBills
+  const forecastTotal = invoiceBills
     .filter((invoice) => invoice.source === "forecast")
     .reduce((sum, invoice) => sum + invoice.total, 0);
 
+  const pendingInvoiceRows = allInvoices
+    .filter(
+      (invoice) =>
+        invoice.paid === 0 &&
+        invoice.date.slice(0, 7) <= month &&
+        (invoice.source !== "manual" ||
+          !data.manualInvoices.some(
+            (record) => record.id === invoice.invoiceId && record.archived,
+          )),
+    )
+    .map((invoice) => ({
+      kind: "invoice" as const,
+      date: invoice.date,
+      invoice,
+    }));
   const visibleRows = [
     ...monthlyEntries.map((entry) => ({
       kind: "entry" as const,
       date: entry.date,
       entry,
     })),
+    ...pendingInvoiceRows,
     ...pendingOccurrences
       .filter(
         ({ occurrence }) =>
@@ -204,31 +249,41 @@ export function FinanceHome({
             )
           : undefined;
       const entryTitle =
-        row.kind === "entry" &&
-        row.entry.type === "transfer" &&
-        row.entry.invoice
-          ? `Pagamento da fatura · ${entryDestination?.name ?? "Cartão"}`
-          : row.kind === "entry"
-            ? row.entry.description
-            : "";
+        row.kind === "invoice"
+          ? `Fatura · ${row.invoice.card.name}`
+          : row.kind === "entry" &&
+              row.entry.type === "transfer" &&
+              row.entry.invoice
+            ? `Pagamento da fatura · ${entryDestination?.name ?? "Cartão"}`
+            : row.kind === "entry"
+              ? row.entry.description
+              : "";
       const categoryName =
         row.kind === "entry"
           ? (data.categories.find(
               (category) => category.id === row.entry.category,
             )?.name ?? "")
-          : (data.categories.find(
-              (category) => category.id === row.occurrence.category,
-            )?.name ?? "");
+          : row.kind === "occurrence"
+            ? (data.categories.find(
+                (category) => category.id === row.occurrence.category,
+              )?.name ?? "")
+            : "";
       const text = `${entryTitle} ${categoryName} ${entryDestination?.name ?? ""}`;
       const type = row.kind === "entry" ? row.entry.type : "expense";
       const category =
-        row.kind === "entry" ? row.entry.category : row.occurrence.category;
+        row.kind === "entry"
+          ? row.entry.category
+          : row.kind === "occurrence"
+            ? row.occurrence.category
+            : "";
       const matchesAccount =
         row.kind === "entry"
           ? row.entry.account === filterAccount ||
             (row.entry.type === "transfer" &&
               row.entry.destination === filterAccount)
-          : row.occurrence.account === filterAccount;
+          : row.kind === "occurrence"
+            ? row.occurrence.account === filterAccount
+            : row.invoice.card.id === filterAccount;
       return (
         text
           .toLocaleLowerCase("pt-BR")
@@ -1118,8 +1173,8 @@ export function FinanceHome({
         <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
         <span>
           {forecastTotal
-            ? `Valor em aberto já incluído nas despesas · ${money(forecastTotal)} previstos ficam fora do total.`
-            : "Esse valor já está incluído nas despesas do mês; não some novamente."}
+            ? `Faturas em aberto até este mês; ${money(forecastTotal)} previstos não alteram o saldo nem as despesas até serem confirmados.`
+            : "Faturas em aberto são agrupadas pelo vencimento; despesas entram pela competência da fatura."}
         </span>
       </div>
 
@@ -1216,7 +1271,7 @@ export function FinanceHome({
           <InvoicesSection
             data={data}
             month={month}
-            bills={currentBills}
+            bills={invoiceBills}
             onClose={() => {
               setReturnToInvoices(false);
               closeModal();
@@ -1226,7 +1281,7 @@ export function FinanceHome({
               setEditingEntry(null);
               setEditingInvoice(null);
               setNewInvoiceCardId("");
-              setModal("expense");
+              setModal("invoice-entry");
             }}
             onEditInvoice={(invoice) => {
               setReturnToInvoices(true);
@@ -1243,7 +1298,7 @@ export function FinanceHome({
               setEditingEntry(null);
               setEditingInvoice(null);
               setNewInvoiceCardId(invoice.card.id);
-              setModal("expense");
+              setModal("invoice-entry");
             }}
             onCancelForecast={(invoice) => {
               const plan = data.invoiceRecurrences.find(
@@ -1293,6 +1348,7 @@ export function FinanceHome({
           </section>
         )}
         {(modal === "expense" ||
+          modal === "invoice-entry" ||
           modal === "income" ||
           modal === "transfer" ||
           modal === "edit-entry") && (
@@ -1303,12 +1359,15 @@ export function FinanceHome({
             invoice={editingInvoice}
             month={month}
             invoiceCardId={newInvoiceCardId}
+            startAsInvoice={modal === "invoice-entry"}
             fixedType={
               editingInvoice
                 ? "expense"
-                : modal === "edit-entry"
-                  ? editingEntry?.type
-                  : fixedEntryType
+                : modal === "invoice-entry"
+                  ? "expense"
+                  : modal === "edit-entry"
+                    ? editingEntry?.type
+                    : fixedEntryType
             }
             onSubmit={(event, type, account) =>
               void submitEntry(event, type, account)

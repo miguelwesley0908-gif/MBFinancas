@@ -20,6 +20,13 @@ async function addAccount(
   ).toBeVisible();
 }
 
+function shiftMonth(value: string, offset: number) {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1 + offset, 1))
+    .toISOString()
+    .slice(0, 7);
+}
+
 test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -35,7 +42,7 @@ test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => 
   await page.getByRole("button", { name: "Nova receita" }).click();
   await page.getByLabel("Valor (R$)").fill("500");
   await page.getByLabel("Entrou em").selectOption({ label: "Conta da casa" });
-  await page.getByRole("button", { name: "Salvar movimentação" }).click();
+  await page.getByRole("button", { name: "Salvar receita" }).click();
   await expect(
     page.locator(".list-row").filter({ hasText: "Receita" }),
   ).toBeVisible();
@@ -50,9 +57,12 @@ test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => 
   await page
     .getByLabel("Conta ou cartão")
     .selectOption({ label: "Conta da casa" });
-  await page.getByLabel("Tipo de gasto").selectOption("home-bills");
-  await page.getByLabel("Descrição (opcional)").fill("Gás");
-  await page.getByRole("button", { name: "Salvar movimentação" }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Categoria")
+    .selectOption("home-bills");
+  await page.getByLabel("Descrição").fill("Gás");
+  await page.getByRole("button", { name: "Salvar despesa" }).click();
   await expect(page.getByText("Gás", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "+ Adicionar" }).click();
@@ -61,7 +71,7 @@ test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => 
   await page.getByLabel("Saiu de").selectOption({ label: "Conta da casa" });
   await page.getByLabel("Entrou em").selectOption({ label: "Outra conta" });
   // Contas do mesmo tipo continuam sendo uma transferência, sem gerar receitas ou despesas.
-  await page.getByRole("button", { name: "Salvar movimentação" }).click();
+  await page.getByRole("button", { name: "Salvar transferência" }).click();
   await expect(
     page.getByRole("heading", { name: "Nova movimentação" }),
   ).toHaveCount(0);
@@ -109,12 +119,15 @@ test("cadastros, recorrência paga e resumo compartilhado", async ({ page }) => 
   expect(errors).toEqual([]);
 });
 
-test("fatura manual e previsão mensal não exigem compras individuais", async ({
+test("fatura aparece pelo vencimento e pagamento entra no mês pago", async ({
   page,
 }) => {
   await page.goto("/");
   const period = page.locator(".app-header input[type=month]");
   const currentMonth = await period.inputValue();
+  const priorMonth = shiftMonth(currentMonth, -1);
+  const dueMonth = currentMonth;
+  const forecastDueMonth = shiftMonth(currentMonth, 1);
   await addAccount(page, "Nova conta bancária", "Banco");
   await addAccount(page, "Novo cartão", "Nubank");
   await expect(
@@ -123,33 +136,52 @@ test("fatura manual e previsão mensal não exigem compras individuais", async (
       .filter({ hasText: "Nubank" })
       .locator(".account-balance"),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "+ Adicionar" }).click();
-  await page.getByRole("button", { name: "Nova fatura" }).click();
-  await page.getByLabel("Cartão").selectOption({ label: "Nubank" });
+  await page.getByRole("button", { name: "Faturas", exact: true }).click();
+  await page.getByRole("button", { name: "+ Fatura" }).click();
   await page
     .getByRole("dialog")
-    .getByLabel("Mês de referência")
-    .fill("2027-05");
-  await page.getByLabel("Valor total (R$)").fill("1500");
-  await page.getByLabel("Vencimento").fill("2027-06-15");
+    .getByLabel("Cartão")
+    .selectOption({ label: "Nubank" });
+  await page.getByRole("dialog").getByLabel("Mês da fatura").fill(priorMonth);
+  await page.getByLabel("Valor total da fatura (R$)").fill("1500");
+  await page.getByLabel("Vencimento").fill(`${dueMonth}-15`);
   await expect(
-    page.getByLabel("Repetir este valor nos próximos meses"),
+    page.getByLabel("Criar previsão desse valor para os próximos meses"),
   ).not.toBeChecked();
-  await page.getByLabel("Repetir este valor nos próximos meses").check();
+  await page
+    .getByLabel("Criar previsão desse valor para os próximos meses")
+    .check();
   await page.getByRole("button", { name: "Salvar fatura" }).click();
-  await period.fill("2027-05");
   await expect(
-    page.locator(".invoice-row").filter({ hasText: "Nubank" }),
+    page
+      .getByRole("dialog")
+      .locator(".invoice-row")
+      .filter({ hasText: "Nubank" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Fechar", exact: true }).click();
+  await period.fill(priorMonth);
   await expect(page.locator("#movements .invoice-list-row")).toHaveCount(0);
-  await expect(page.getByText("R$ 1.500,00").first()).toBeVisible();
-  await page.getByText("Pagar", { exact: true }).click();
+
+  await period.fill(dueMonth);
+  const openInvoice = page
+    .locator("#movements .invoice-list-row")
+    .filter({ hasText: "Nubank" });
+  await expect(openInvoice).toHaveCount(1);
+  await page.getByRole("button", { name: "Faturas", exact: true }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .locator(".invoice-row")
+      .filter({ hasText: "Nubank" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fechar", exact: true }).click();
+
+  await openInvoice.locator(".pay-details summary").click();
   await page
     .locator(".payment-form select[name=source]")
     .selectOption({ label: "Banco" });
   await page.locator(".payment-form input[name=amount]").fill("500");
   await page.getByRole("button", { name: "Registrar pagamento" }).click();
-  await expect(page.getByText("R$ 1.000,00").first()).toBeVisible();
   await period.fill(currentMonth);
   const cardPayment = page
     .locator("#movements .list-row")
@@ -157,7 +189,21 @@ test("fatura manual e previsão mensal não exigem compras individuais", async (
   await expect(cardPayment).toHaveCount(1);
   await page.getByLabel("Filtrar por conta").selectOption({ label: "Nubank" });
   await expect(cardPayment).toHaveCount(1);
-  await period.fill("2027-06");
+  await period.fill(priorMonth);
+  await expect(cardPayment).toHaveCount(0);
+  await period.fill(dueMonth);
+  await expect(page.locator("#movements .invoice-list-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "Faturas", exact: true }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .locator(".invoice-row")
+      .filter({ hasText: "Nubank" }),
+  ).toContainText("resta R$ 1.000,00");
+  await page.keyboard.press("Escape");
+  await page.getByLabel("Filtrar por conta").selectOption("");
+  await period.fill(forecastDueMonth);
+  await page.getByRole("button", { name: "Faturas", exact: true }).click();
   await expect(
     page.getByText("Prevista", { exact: true }).first(),
   ).toBeVisible();
