@@ -391,6 +391,9 @@
 .account-row {
   grid-template-columns: 34px minmax(0, 1fr) auto auto;
 }
+.account-row.card-account-row {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+}
 .account-row .card-invoices {
   grid-column: 2 / -1;
   min-width: 0;

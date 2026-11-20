@@ -33,6 +33,7 @@ import {
 } from "./domain";
 import {
   AccountsSection,
+  InvoicesSection,
   MovementsSection,
   PlanningSection,
   SettingsSection,
@@ -192,39 +193,47 @@ export function FinanceHome({
         occurrence,
         recurrence,
       })),
-    ...currentBills.map((invoice) => ({
-      kind: "invoice" as const,
-      date: invoice.date,
-      invoice,
-    })),
   ]
     .filter((row) => {
-      const text =
-        row.kind === "invoice"
-          ? `fatura ${row.invoice.card.name} ${row.invoice.competence}`
+      const entryDestination =
+        row.kind === "entry" && row.entry.type === "transfer"
+          ? data.accounts.find(
+              (account) => account.id === row.entry.destination,
+            )
+          : undefined;
+      const entryTitle =
+        row.kind === "entry" &&
+        row.entry.type === "transfer" &&
+        row.entry.invoice
+          ? `Pagamento da fatura · ${entryDestination?.name ?? "Cartão"}`
           : row.kind === "entry"
-          ? `${row.entry.description} ${data.categories.find((category) => category.id === row.entry.category)?.name ?? ""}`
-          : `${row.occurrence.description} ${data.categories.find((category) => category.id === row.occurrence.category)?.name ?? ""}`;
+            ? row.entry.description
+            : "";
+      const categoryName =
+        row.kind === "entry"
+          ? (data.categories.find(
+              (category) => category.id === row.entry.category,
+            )?.name ?? "")
+          : (data.categories.find(
+              (category) => category.id === row.occurrence.category,
+            )?.name ?? "");
+      const text = `${entryTitle} ${categoryName} ${entryDestination?.name ?? ""}`;
       const type = row.kind === "entry" ? row.entry.type : "expense";
       const category =
-        row.kind === "invoice"
-          ? ""
-          : row.kind === "entry"
-            ? row.entry.category
-            : row.occurrence.category;
-      const account =
-        row.kind === "invoice"
-          ? row.invoice.card.id
-          : row.kind === "entry"
-            ? row.entry.account
-            : row.occurrence.account;
+        row.kind === "entry" ? row.entry.category : row.occurrence.category;
+      const matchesAccount =
+        row.kind === "entry"
+          ? row.entry.account === filterAccount ||
+            (row.entry.type === "transfer" &&
+              row.entry.destination === filterAccount)
+          : row.occurrence.account === filterAccount;
       return (
         text
           .toLocaleLowerCase("pt-BR")
           .includes(search.toLocaleLowerCase("pt-BR")) &&
         (!filterType || filterType === type) &&
         (!filterCategory || filterCategory === category) &&
-        (!filterAccount || filterAccount === account)
+        (!filterAccount || matchesAccount)
       );
     })
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -718,9 +727,7 @@ export function FinanceHome({
           : {
               ...item,
               status:
-                action === "pause"
-                  ? ("paused" as const)
-                  : ("active" as const),
+                action === "pause" ? ("paused" as const) : ("active" as const),
             },
     );
     if (await save({ ...data, invoiceRecurrences }))
@@ -960,6 +967,7 @@ export function FinanceHome({
 
       <nav className="module-nav" aria-label="Módulos do aplicativo">
         <a href="#movements">Movimentações</a>
+        <a href="#invoices">Faturas</a>
         <a href="#accounts">Contas e cartões</a>
         <a href="#planning">Planejamento</a>
         <a href="#settings">Configurações</a>
@@ -986,12 +994,14 @@ export function FinanceHome({
         </article>
         <article className="metric">
           <span>Resultado do mês</span>
-          <strong className={monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"}>
+          <strong
+            className={
+              monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"
+            }
+          >
             {money(monthlyIncome - monthlyExpenses)}
           </strong>
-          <small>
-            Receitas menos despesas registradas
-          </small>
+          <small>Receitas menos despesas registradas</small>
         </article>
       </section>
       <div className="dashboard-note">
@@ -1042,6 +1052,30 @@ export function FinanceHome({
         onOccurrenceAction={(occurrence, recurrence, action) =>
           void occurrenceAction(occurrence, recurrence, action)
         }
+      />
+      <InvoicesSection
+        data={data}
+        month={month}
+        bills={currentBills}
+        onAddInvoice={() => {
+          setEditingEntry(null);
+          setEditingInvoice(null);
+          setNewInvoiceCardId("");
+          setModal("expense");
+        }}
+        onEditInvoice={(invoice) => {
+          setEditingEntry(null);
+          setEditingInvoice(invoice);
+          setModal("expense");
+        }}
+        onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
+        onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
+        onConfirmForecast={(invoice) => {
+          setEditingEntry(null);
+          setEditingInvoice(null);
+          setNewInvoiceCardId(invoice.card.id);
+          setModal("expense");
+        }}
       />
       <AccountsSection
         data={data}

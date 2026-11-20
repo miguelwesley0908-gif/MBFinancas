@@ -113,8 +113,16 @@ test("fatura manual e previsão mensal não exigem compras individuais", async (
   page,
 }) => {
   await page.goto("/");
+  const period = page.locator(".app-header input[type=month]");
+  const currentMonth = await period.inputValue();
   await addAccount(page, "Nova conta bancária", "Banco");
   await addAccount(page, "Novo cartão", "Nubank");
+  await expect(
+    page
+      .locator(".account-row")
+      .filter({ hasText: "Nubank" })
+      .locator(".account-balance"),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "+ Adicionar" }).click();
   await page.getByRole("button", { name: "Nova fatura" }).click();
   await page.getByLabel("Cartão").selectOption({ label: "Nubank" });
@@ -129,11 +137,11 @@ test("fatura manual e previsão mensal não exigem compras individuais", async (
   ).not.toBeChecked();
   await page.getByLabel("Repetir este valor nos próximos meses").check();
   await page.getByRole("button", { name: "Salvar fatura" }).click();
-  const period = page.locator(".app-header input[type=month]");
   await period.fill("2027-05");
   await expect(
     page.locator(".invoice-row").filter({ hasText: "Nubank" }),
   ).toBeVisible();
+  await expect(page.locator("#movements .invoice-list-row")).toHaveCount(0);
   await expect(page.getByText("R$ 1.500,00").first()).toBeVisible();
   await page.getByText("Pagar", { exact: true }).click();
   await page
@@ -142,6 +150,13 @@ test("fatura manual e previsão mensal não exigem compras individuais", async (
   await page.locator(".payment-form input[name=amount]").fill("500");
   await page.getByRole("button", { name: "Registrar pagamento" }).click();
   await expect(page.getByText("R$ 1.000,00").first()).toBeVisible();
+  await period.fill(currentMonth);
+  const cardPayment = page
+    .locator("#movements .list-row")
+    .filter({ hasText: "Pagamento da fatura · Nubank" });
+  await expect(cardPayment).toHaveCount(1);
+  await page.getByLabel("Filtrar por conta").selectOption({ label: "Nubank" });
+  await expect(cardPayment).toHaveCount(1);
   await period.fill("2027-06");
   await expect(
     page.getByText("Prevista", { exact: true }).first(),

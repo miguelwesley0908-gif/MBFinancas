@@ -88,7 +88,7 @@ export function MovementsSection({
         <div>
           <h2>Movimentações e despesas</h2>
           <small>
-            Despesas, receitas, pagamentos e faturas em uma única lista.
+            Despesas, receitas, pagamentos e transferências em uma única lista.
           </small>
         </div>
         <span className="count-label">{rows.length}</span>
@@ -150,7 +150,10 @@ export function MovementsSection({
       <div className="compact-list">
         {rows.map((row) =>
           row.kind === "invoice" ? (
-            <article className="list-row invoice-list-row" key={row.invoice.key}>
+            <article
+              className="list-row invoice-list-row"
+              key={row.invoice.key}
+            >
               <div className="list-main">
                 <span
                   className={`list-icon ${row.invoice.source === "forecast" ? "forecast" : "card-icon"}`}
@@ -164,7 +167,8 @@ export function MovementsSection({
                       : `Fatura · ${row.invoice.card.name}`}
                   </strong>
                   <small>
-                    {row.invoice.competence} · vence {dateLabel(row.invoice.date)}
+                    {row.invoice.competence} · vence{" "}
+                    {dateLabel(row.invoice.date)}
                     {row.invoice.source === "purchase"
                       ? " · resumo das compras no cartão"
                       : row.invoice.source === "manual"
@@ -220,8 +224,14 @@ export function MovementsSection({
                           type="number"
                           min=".01"
                           step=".01"
-                          max={Math.max(0, row.invoice.total - row.invoice.paid) / 100}
-                          defaultValue={Math.max(0, row.invoice.total - row.invoice.paid) / 100}
+                          max={
+                            Math.max(0, row.invoice.total - row.invoice.paid) /
+                            100
+                          }
+                          defaultValue={
+                            Math.max(0, row.invoice.total - row.invoice.paid) /
+                            100
+                          }
                           required
                         />
                       </label>
@@ -281,24 +291,34 @@ export function MovementsSection({
                 </span>
                 <div>
                   <strong>
-                    {row.entry.description ||
-                      {
-                        income: "Receita",
-                        expense: "Despesa",
-                        transfer: "Transferência",
-                      }[row.entry.type]}
+                    {row.entry.type === "transfer" && row.entry.invoice
+                      ? `Pagamento da fatura · ${data.accounts.find((account) => account.id === row.entry.destination)?.name ?? "Cartão"}`
+                      : row.entry.description ||
+                        {
+                          income: "Receita",
+                          expense: "Despesa",
+                          transfer: "Transferência",
+                        }[row.entry.type]}
                   </strong>
                   <small>
-                    {data.categories.find(
-                      (category) => category.id === row.entry.category,
-                    )?.name ??
-                      (row.entry.type === "transfer"
-                        ? "Transferência entre contas"
-                        : "Sem categoria")}{" "}
+                    {row.entry.type === "transfer" && row.entry.invoice
+                      ? "Pagamento de fatura"
+                      : (data.categories.find(
+                          (category) => category.id === row.entry.category,
+                        )?.name ??
+                        (row.entry.type === "transfer"
+                          ? "Transferência entre contas"
+                          : "Sem categoria"))}{" "}
                     · {dateLabel(row.entry.date)} ·{" "}
                     {data.accounts.find(
                       (account) => account.id === row.entry.account,
                     )?.name ?? "Conta removida"}
+                    {row.entry.type === "transfer" && row.entry.invoice
+                      ? " → " +
+                        (data.accounts.find(
+                          (account) => account.id === row.entry.destination,
+                        )?.name ?? "Cartão")
+                      : ""}
                   </small>
                 </div>
               </div>
@@ -450,7 +470,10 @@ export function AccountsSection({
       <div className="section-title">
         <div>
           <h2>Contas e cartões</h2>
-          <small>Saldo disponível por conta e cartão.</small>
+          <small>
+            Saldo disponível de contas e dinheiro; cartões identificados pelo
+            nome.
+          </small>
         </div>
         <button className="text-button" onClick={onAddAccount}>
           + Conta
@@ -458,7 +481,14 @@ export function AccountsSection({
       </div>
       <div className="compact-list">
         {data.accounts.map((account) => (
-          <article className="account-row" key={account.id}>
+          <article
+            className={
+              account.type === "card"
+                ? "account-row card-account-row"
+                : "account-row"
+            }
+            key={account.id}
+          >
             <span
               className={`list-icon ${account.type === "card" ? "card-icon" : "account-icon"}`}
             >
@@ -474,13 +504,11 @@ export function AccountsSection({
                     : "Conta bancária"}
               </small>
             </div>
-            <strong className="account-balance">
-              {money(
-                account.type === "card"
-                  ? -balance(data, account)
-                  : balance(data, account),
-              )}
-            </strong>
+            {account.type !== "card" && (
+              <strong className="account-balance">
+                {money(balance(data, account))}
+              </strong>
+            )}
             <div className="actions">
               <button
                 className="ghost compact-button"
@@ -532,7 +560,7 @@ export function InvoicesSection({
   onConfirmForecast,
 }: InvoicesProps) {
   return (
-    <section className="panel section-panel">
+    <section id="invoices" className="panel section-panel">
       <div className="section-title">
         <div>
           <h2>Faturas de {month}</h2>
@@ -731,10 +759,14 @@ export function PlanningSection({
                   ? "semanal"
                   : recurrence.frequency === "yearly"
                     ? "anual"
-                    : "mensal"} ·{" "}
-                {data.accounts.find(
-                  (account) => account.id === recurrence.account,
-                )?.name} ·{" "}
+                    : "mensal"}{" "}
+                ·{" "}
+                {
+                  data.accounts.find(
+                    (account) => account.id === recurrence.account,
+                  )?.name
+                }{" "}
+                ·{" "}
                 {recurrence.status === "active"
                   ? "Ativa"
                   : recurrence.status === "paused"
@@ -806,7 +838,9 @@ export function PlanningSection({
                         .filter((part) => part.date.startsWith(month))
                         .reduce((subtotal, part) => subtotal + part.amount, 0)
                     );
-                  return sum + (entry.date.startsWith(month) ? entry.amount : 0);
+                  return (
+                    sum + (entry.date.startsWith(month) ? entry.amount : 0)
+                  );
                 }, 0);
               return (
                 <div key={key}>
@@ -833,8 +867,11 @@ export function PlanningSection({
           {data.invoiceRecurrences.map((plan) => (
             <div className="planning-row" key={plan.id}>
               <span>
-                {data.accounts.find((account) => account.id === plan.cardId)
-                  ?.name} · {money(plan.amount)} · desde {plan.startMonth} ·{" "}
+                {
+                  data.accounts.find((account) => account.id === plan.cardId)
+                    ?.name
+                }{" "}
+                · {money(plan.amount)} · desde {plan.startMonth} ·{" "}
                 {plan.status === "active"
                   ? "Ativa"
                   : plan.status === "paused"
@@ -928,7 +965,9 @@ export function SettingsSection({
       <summary>
         <span>
           <strong>Configurações e orçamento</strong>
-          <small>Renda, categorias, cópias de segurança e compartilhamento</small>
+          <small>
+            Renda, categorias, cópias de segurança e compartilhamento
+          </small>
         </span>
         <span aria-hidden="true">＋</span>
       </summary>
@@ -973,10 +1012,7 @@ export function SettingsSection({
             </div>
           ))}
         </div>
-        <form
-          className="inline-form category-form"
-          onSubmit={onAddCategory}
-        >
+        <form className="inline-form category-form" onSubmit={onAddCategory}>
           <label>
             Nova categoria
             <input name="name" required maxLength={60} />
