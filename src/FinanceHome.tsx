@@ -33,14 +33,12 @@ import {
 } from "./domain";
 import {
   AccountsSection,
-  InvoicesSection,
   MovementsSection,
   PlanningSection,
   SettingsSection,
 } from "./components/FinanceSections";
 import { AccountForm } from "./components/AccountForm";
 import { EntryForm } from "./components/EntryForm";
-import { InvoiceForm } from "./components/InvoiceForm";
 import { RecurrenceForm } from "./components/RecurrenceForm";
 
 type Modal =
@@ -48,14 +46,11 @@ type Modal =
   | "expense"
   | "income"
   | "transfer"
-  | "purchase"
   | "bank"
   | "card"
-  | "invoice"
   | "recurrence"
   | "edit-entry"
   | "edit-account"
-  | "edit-invoice"
   | "edit-recurrence"
   | "occurrence";
 type Props = {
@@ -197,17 +192,32 @@ export function FinanceHome({
         occurrence,
         recurrence,
       })),
+    ...currentBills.map((invoice) => ({
+      kind: "invoice" as const,
+      date: invoice.date,
+      invoice,
+    })),
   ]
     .filter((row) => {
       const text =
-        row.kind === "entry"
+        row.kind === "invoice"
+          ? `fatura ${row.invoice.card.name} ${row.invoice.competence}`
+          : row.kind === "entry"
           ? `${row.entry.description} ${data.categories.find((category) => category.id === row.entry.category)?.name ?? ""}`
           : `${row.occurrence.description} ${data.categories.find((category) => category.id === row.occurrence.category)?.name ?? ""}`;
       const type = row.kind === "entry" ? row.entry.type : "expense";
       const category =
-        row.kind === "entry" ? row.entry.category : row.occurrence.category;
+        row.kind === "invoice"
+          ? ""
+          : row.kind === "entry"
+            ? row.entry.category
+            : row.occurrence.category;
       const account =
-        row.kind === "entry" ? row.entry.account : row.occurrence.account;
+        row.kind === "invoice"
+          ? row.invoice.card.id
+          : row.kind === "entry"
+            ? row.entry.account
+            : row.occurrence.account;
       return (
         text
           .toLocaleLowerCase("pt-BR")
@@ -221,6 +231,7 @@ export function FinanceHome({
 
   function openAdd() {
     setModal("menu");
+    setNewInvoiceCardId("");
     setMessage("");
   }
   function choose(kind: Modal) {
@@ -229,7 +240,7 @@ export function FinanceHome({
     setEditingAccount(null);
     setEditingInvoice(null);
     setEditingRecurrence(null);
-    if (kind === "invoice") setNewInvoiceCardId("");
+    setNewInvoiceCardId("");
     setMessage("");
   }
   function closeModal() {
@@ -239,6 +250,7 @@ export function FinanceHome({
     setEditingInvoice(null);
     setEditingRecurrence(null);
     setSelectedOccurrence(null);
+    setNewInvoiceCardId("");
   }
 
   async function submitEntry(
@@ -887,7 +899,6 @@ export function FinanceHome({
     URL.revokeObjectURL(url);
   }
 
-  const selectedManualForEdit = editingInvoice;
   const selectedRecurrence = editingRecurrence;
   const accountTypeForModal = modal === "card" ? "card" : "bank";
   const fixedEntryType =
@@ -895,7 +906,7 @@ export function FinanceHome({
       ? "income"
       : modal === "transfer"
         ? "transfer"
-        : modal === "expense" || modal === "purchase"
+        : modal === "expense"
           ? "expense"
           : undefined;
 
@@ -947,6 +958,13 @@ export function FinanceHome({
         </button>
       </div>
 
+      <nav className="module-nav" aria-label="Módulos do aplicativo">
+        <a href="#movements">Movimentações</a>
+        <a href="#accounts">Contas e cartões</a>
+        <a href="#planning">Planejamento</a>
+        <a href="#settings">Configurações</a>
+      </nav>
+
       <section
         className="metrics compact-metrics"
         aria-label="Resumo financeiro"
@@ -964,18 +982,26 @@ export function FinanceHome({
         <article className="metric">
           <span>Despesas do mês</span>
           <strong>{money(monthlyExpenses)}</strong>
-          <small>Por vencimento ou data de pagamento</small>
+          <small>Inclui compras e faturas dos cartões</small>
         </article>
         <article className="metric">
-          <span>Faturas do mês</span>
-          <strong>{money(outstandingInvoices)}</strong>
+          <span>Resultado do mês</span>
+          <strong className={monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"}>
+            {money(monthlyIncome - monthlyExpenses)}
+          </strong>
           <small>
-            {forecastTotal
-              ? `${money(forecastTotal)} previstos`
-              : "Total confirmado em aberto"}
+            Receitas menos despesas registradas
           </small>
         </article>
       </section>
+      <div className="dashboard-note">
+        <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
+        <span>
+          {forecastTotal
+            ? `Valor em aberto já incluído nas despesas · ${money(forecastTotal)} previstos ficam fora do total.`
+            : "Esse valor já está incluído nas despesas do mês; não some novamente."}
+        </span>
+      </div>
 
       <MovementsSection
         data={data}
@@ -992,6 +1018,19 @@ export function FinanceHome({
           setEditingEntry(entry);
           setModal("edit-entry");
         }}
+        onEditInvoice={(invoice) => {
+          setEditingEntry(null);
+          setEditingInvoice(invoice);
+          setModal("expense");
+        }}
+        onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
+        onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
+        onConfirmForecast={(invoice) => {
+          setEditingEntry(null);
+          setEditingInvoice(null);
+          setNewInvoiceCardId(invoice.card.id);
+          setModal("expense");
+        }}
         onRemoveEntry={(entry) => void removeEntry(entry)}
         onMarkOccurrence={(occurrence, recurrence) =>
           void markOccurrencePaid(occurrence, recurrence)
@@ -1006,34 +1045,12 @@ export function FinanceHome({
       />
       <AccountsSection
         data={data}
-        currentBills={currentBills}
         onAddAccount={() => choose("bank")}
         onEditAccount={(account) => {
           setEditingAccount(account);
           setModal("edit-account");
         }}
         onDeleteAccount={(account) => void deleteAccount(account)}
-        onEditInvoice={(invoice) => {
-          setEditingInvoice(invoice);
-          setModal("edit-invoice");
-        }}
-      />
-      <InvoicesSection
-        data={data}
-        month={month}
-        bills={currentBills}
-        onAddInvoice={() => choose("invoice")}
-        onEditInvoice={(invoice) => {
-          setEditingInvoice(invoice);
-          setModal("edit-invoice");
-        }}
-        onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
-        onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
-        onConfirmForecast={(invoice) => {
-          setEditingInvoice(null);
-          setNewInvoiceCardId(invoice.card.id);
-          setModal("invoice");
-        }}
       />
 
       <PlanningSection
@@ -1090,10 +1107,8 @@ export function FinanceHome({
                   ["expense", "Nova despesa", "↓"],
                   ["income", "Nova receita", "↑"],
                   ["transfer", "Nova transferência", "↔"],
-                  ["purchase", "Nova compra no cartão", "▣"],
                   ["bank", "Nova conta bancária", "▤"],
                   ["card", "Novo cartão", "▣"],
-                  ["invoice", "Nova fatura", "▧"],
                   ["recurrence", "Nova despesa recorrente", "◷"],
                 ] as [Modal, string, string][]
               ).map(([kind, label, icon]) => (
@@ -1113,19 +1128,26 @@ export function FinanceHome({
         {(modal === "expense" ||
           modal === "income" ||
           modal === "transfer" ||
-          modal === "purchase" ||
           modal === "edit-entry") && (
           <EntryForm
-            key={`${modal}-${editingEntry?.id ?? "new"}`}
+            key={`${modal}-${editingEntry?.id ?? editingInvoice?.id ?? newInvoiceCardId ?? "new"}`}
             data={data}
             editing={editingEntry}
+            invoice={editingInvoice}
+            month={month}
+            invoiceCardId={newInvoiceCardId}
             fixedType={
-              modal === "edit-entry" ? editingEntry?.type : fixedEntryType
+              editingInvoice
+                ? "expense"
+                : modal === "edit-entry"
+                  ? editingEntry?.type
+                  : fixedEntryType
             }
-            cardOnly={modal === "purchase"}
             onSubmit={(event, type, account) =>
               void submitEntry(event, type, account)
             }
+            onSaveInvoice={saveManualInvoice}
+            onError={setMessage}
             onCancel={closeModal}
           />
         )}
@@ -1148,17 +1170,6 @@ export function FinanceHome({
             onSave={saveAccount}
             onError={setMessage}
             onCancel={closeModal}
-          />
-        )}
-        {(modal === "invoice" || modal === "edit-invoice") && (
-          <InvoiceForm
-            cards={data.accounts.filter((account) => account.type === "card")}
-            month={month}
-            cardId={newInvoiceCardId}
-            invoice={selectedManualForEdit ?? undefined}
-            onSave={saveManualInvoice}
-            onCancel={closeModal}
-            onError={setMessage}
           />
         )}
         {(modal === "recurrence" || modal === "edit-recurrence") && (

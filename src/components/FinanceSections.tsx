@@ -16,6 +16,7 @@ import {
 
 export type MovementRow =
   | { kind: "entry"; date: string; entry: Entry }
+  | { kind: "invoice"; date: string; invoice: InvoiceView }
   | {
       kind: "occurrence";
       date: string;
@@ -37,6 +38,13 @@ type MovementsProps = {
   onFilterCategory: (value: string) => void;
   onFilterAccount: (value: string) => void;
   onEditEntry: (entry: Entry) => void;
+  onEditInvoice: (invoice: ManualInvoice) => void;
+  onDeleteInvoice: (invoice: ManualInvoice) => void;
+  onPayInvoice: (
+    event: FormEvent<HTMLFormElement>,
+    invoice: InvoiceView,
+  ) => void;
+  onConfirmForecast: (invoice: InvoiceView) => void;
   onRemoveEntry: (entry: Entry) => void;
   onMarkOccurrence: (
     occurrence: ExpenseOccurrence,
@@ -65,17 +73,23 @@ export function MovementsSection({
   onFilterCategory,
   onFilterAccount,
   onEditEntry,
+  onEditInvoice,
+  onDeleteInvoice,
+  onPayInvoice,
+  onConfirmForecast,
   onRemoveEntry,
   onMarkOccurrence,
   onEditOccurrence,
   onOccurrenceAction,
 }: MovementsProps) {
   return (
-    <section className="panel section-panel">
+    <section id="movements" className="panel section-panel">
       <div className="section-title">
         <div>
-          <h2>Movimentações</h2>
-          <small>Registros reais e vencimentos recorrentes do período.</small>
+          <h2>Movimentações e despesas</h2>
+          <small>
+            Despesas, receitas, pagamentos e faturas em uma única lista.
+          </small>
         </div>
         <span className="count-label">{rows.length}</span>
       </div>
@@ -135,7 +149,127 @@ export function MovementsSection({
       </div>
       <div className="compact-list">
         {rows.map((row) =>
-          row.kind === "entry" ? (
+          row.kind === "invoice" ? (
+            <article className="list-row invoice-list-row" key={row.invoice.key}>
+              <div className="list-main">
+                <span
+                  className={`list-icon ${row.invoice.source === "forecast" ? "forecast" : "card-icon"}`}
+                >
+                  ▤
+                </span>
+                <div>
+                  <strong>
+                    {row.invoice.source === "forecast"
+                      ? `Previsão · ${row.invoice.card.name}`
+                      : `Fatura · ${row.invoice.card.name}`}
+                  </strong>
+                  <small>
+                    {row.invoice.competence} · vence {dateLabel(row.invoice.date)}
+                    {row.invoice.source === "purchase"
+                      ? " · resumo das compras no cartão"
+                      : row.invoice.source === "manual"
+                        ? " · total informado"
+                        : " · valor previsto"}
+                  </small>
+                </div>
+              </div>
+              <div className="row-value">
+                <span>{money(row.invoice.total)}</span>
+                <small>
+                  {row.invoice.source === "forecast"
+                    ? "Previsão"
+                    : `Em aberto: ${money(Math.max(0, row.invoice.total - row.invoice.paid))}`}
+                </small>
+              </div>
+              <div className="invoice-actions">
+                {row.invoice.source === "forecast" ? (
+                  <button
+                    className="ghost compact-button"
+                    onClick={() => onConfirmForecast(row.invoice)}
+                  >
+                    Informar valor real
+                  </button>
+                ) : row.invoice.paid >= row.invoice.total ? (
+                  <span className="badge paid">Paga</span>
+                ) : (
+                  <details className="pay-details">
+                    <summary>Pagar fatura</summary>
+                    <form
+                      className="payment-form"
+                      onSubmit={(event) => onPayInvoice(event, row.invoice)}
+                    >
+                      <label>
+                        Conta usada
+                        <select name="source" required defaultValue="">
+                          <option value="" disabled>
+                            Selecione
+                          </option>
+                          {data.accounts
+                            .filter((account) => account.type !== "card")
+                            .map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label>
+                        Valor pago (R$)
+                        <input
+                          name="amount"
+                          type="number"
+                          min=".01"
+                          step=".01"
+                          max={Math.max(0, row.invoice.total - row.invoice.paid) / 100}
+                          defaultValue={Math.max(0, row.invoice.total - row.invoice.paid) / 100}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Data do pagamento
+                        <input
+                          name="date"
+                          type="date"
+                          max={today()}
+                          defaultValue={today()}
+                          required
+                        />
+                      </label>
+                      <button>Registrar pagamento</button>
+                    </form>
+                  </details>
+                )}
+                {row.invoice.source === "manual" && (
+                  <>
+                    {data.manualInvoices
+                      .filter((item) => item.id === row.invoice.invoiceId)
+                      .map((record) => (
+                        <button
+                          key={record.id}
+                          className="ghost compact-button"
+                          onClick={() => onEditInvoice(record)}
+                        >
+                          Editar
+                        </button>
+                      ))}
+                    {row.invoice.paid === 0 && (
+                      <button
+                        className="ghost compact-button destructive"
+                        onClick={() => {
+                          const record = data.manualInvoices.find(
+                            (item) => item.id === row.invoice.invoiceId,
+                          );
+                          if (record) onDeleteInvoice(record);
+                        }}
+                      >
+                        Excluir
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </article>
+          ) : row.kind === "entry" ? (
             <article className="list-row" key={row.entry.id}>
               <div className="list-main">
                 <span className={`list-icon ${row.entry.type}`}>
@@ -300,27 +434,23 @@ export function MovementsSection({
 
 type AccountsProps = {
   data: Data;
-  currentBills: InvoiceView[];
   onAddAccount: () => void;
   onEditAccount: (account: Account) => void;
   onDeleteAccount: (account: Account) => void;
-  onEditInvoice: (invoice: ManualInvoice) => void;
 };
 
 export function AccountsSection({
   data,
-  currentBills,
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
-  onEditInvoice,
 }: AccountsProps) {
   return (
-    <section className="panel section-panel">
+    <section id="accounts" className="panel section-panel">
       <div className="section-title">
         <div>
           <h2>Contas e cartões</h2>
-          <small>Saldo disponível e compromissos de cada cartão.</small>
+          <small>Saldo disponível por conta e cartão.</small>
         </div>
         <button className="text-button" onClick={onAddAccount}>
           + Conta
@@ -365,44 +495,6 @@ export function AccountsSection({
                 Excluir
               </button>
             </div>
-            {account.type === "card" && (
-              <details className="card-invoices">
-                <summary>Faturas</summary>
-                {currentBills
-                  .filter((invoice) => invoice.card.id === account.id)
-                  .map((invoice) => (
-                    <div className="nested-invoice" key={invoice.key}>
-                      <span>
-                        {invoice.competence} ·{" "}
-                        {invoice.source === "forecast"
-                          ? "Prevista"
-                          : invoice.paid >= invoice.total
-                            ? "Paga"
-                            : invoice.date < today()
-                              ? "Atrasada"
-                              : "Aberta"}
-                      </span>
-                      <strong>{money(invoice.total - invoice.paid)}</strong>
-                      {invoice.source === "manual" && (
-                        <button
-                          className="text-button"
-                          onClick={() => {
-                            const record = data.manualInvoices.find(
-                              (item) => item.id === invoice.invoiceId,
-                            );
-                            if (record) onEditInvoice(record);
-                          }}
-                        >
-                          Editar
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                {!currentBills.some(
-                  (invoice) => invoice.card.id === account.id,
-                ) && <small>Sem fatura neste mês.</small>}
-              </details>
-            )}
           </article>
         ))}
         {!data.accounts.length && (
@@ -611,11 +703,11 @@ export function PlanningSection({
   onInvoicePlanAction,
 }: PlanningProps) {
   return (
-    <details className="panel planning-panel">
+    <details id="planning" className="panel planning-panel">
       <summary>
         <span>
           <strong>Planejamento</strong>
-          <small>Despesas recorrentes, faturas previstas e orçamento</small>
+          <small>Despesas recorrentes, previsões dos cartões e orçamento</small>
         </span>
         <span aria-hidden="true">＋</span>
       </summary>
@@ -737,7 +829,7 @@ export function PlanningSection({
           </p>
         )}
         <div className="planning-bottom">
-          <strong>Previsões de fatura</strong>
+          <strong>Previsões dos cartões</strong>
           {data.invoiceRecurrences.map((plan) => (
             <div className="planning-row" key={plan.id}>
               <span>
@@ -832,7 +924,7 @@ export function SettingsSection({
     event.target.value = "";
   };
   return (
-    <details className="panel settings-panel">
+    <details id="settings" className="panel settings-panel">
       <summary>
         <span>
           <strong>Configurações e orçamento</strong>

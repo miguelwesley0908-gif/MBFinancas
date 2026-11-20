@@ -7,7 +7,7 @@ body {
   background: #f4f6f2;
   color: #203c32;
   font:
-    15px/1.6 "Segoe UI",
+    16px/1.6 "Segoe UI",
     system-ui,
     sans-serif;
 }
@@ -58,13 +58,13 @@ label {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 small {
   display: block;
   color: #61766a;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 h1,
@@ -79,7 +79,7 @@ h1 {
   letter-spacing: -1px;
 }
 h2 {
-  font-size: 19px;
+  font-size: 21px;
   margin-bottom: 10px;
 }
 h3 {
