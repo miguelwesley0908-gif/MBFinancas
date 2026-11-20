@@ -1,4 +1,4 @@
-import type { ChangeEvent, FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import {
   balance,
   groups,
@@ -457,6 +457,8 @@ type AccountsProps = {
   onAddAccount: () => void;
   onEditAccount: (account: Account) => void;
   onDeleteAccount: (account: Account) => void;
+  onArchiveAccount: (account: Account) => void;
+  onRestoreAccount: (account: Account) => void;
 };
 
 export function AccountsSection({
@@ -464,7 +466,90 @@ export function AccountsSection({
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
+  onArchiveAccount,
+  onRestoreAccount,
 }: AccountsProps) {
+  const isUsed = (account: Account) =>
+    data.entries.some(
+      (entry) =>
+        entry.account === account.id || entry.destination === account.id,
+    ) ||
+    data.recurrences.some((recurrence) => recurrence.account === account.id) ||
+    data.manualInvoices.some((invoice) => invoice.cardId === account.id) ||
+    data.invoiceRecurrences.some(
+      (recurrence) => recurrence.cardId === account.id,
+    );
+  const activeAccounts = data.accounts.filter((account) => !account.archived);
+  const archivedAccounts = data.accounts.filter((account) => account.archived);
+  const renderAccount = (account: Account, archived = false) => (
+    <article
+      className={
+        account.type === "card" ? "account-row card-account-row" : "account-row"
+      }
+      key={account.id}
+    >
+      <span
+        className={`list-icon ${account.type === "card" ? "card-icon" : "account-icon"}`}
+      >
+        {account.type === "card" ? "▣" : "▤"}
+      </span>
+      <div className="account-info">
+        <strong>{account.name}</strong>
+        <small>
+          {archived
+            ? account.type === "card"
+              ? `Arquivado · fecha dia ${account.closing} · vence dia ${account.due}`
+              : account.type === "cash"
+                ? "Dinheiro · arquivada"
+                : "Conta bancária · arquivada"
+            : account.type === "card"
+              ? `Fecha dia ${account.closing} · vence dia ${account.due}`
+              : account.type === "cash"
+                ? "Dinheiro"
+                : "Conta bancária"}
+        </small>
+      </div>
+      {account.type !== "card" && (
+        <strong className="account-balance">
+          {money(balance(data, account))}
+        </strong>
+      )}
+      <div className="actions">
+        {archived ? (
+          <button
+            className="ghost compact-button"
+            onClick={() => onRestoreAccount(account)}
+          >
+            Restaurar
+          </button>
+        ) : (
+          <>
+            <button
+              className="ghost compact-button"
+              onClick={() => onEditAccount(account)}
+            >
+              Editar
+            </button>
+            {isUsed(account) ? (
+              <button
+                className="ghost compact-button destructive"
+                onClick={() => onArchiveAccount(account)}
+              >
+                Arquivar
+              </button>
+            ) : (
+              <button
+                className="ghost compact-button destructive"
+                onClick={() => onDeleteAccount(account)}
+              >
+                Excluir
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </article>
+  );
   return (
     <section id="accounts" className="panel section-panel">
       <div className="section-title">
@@ -480,57 +565,23 @@ export function AccountsSection({
         </button>
       </div>
       <div className="compact-list">
-        {data.accounts.map((account) => (
-          <article
-            className={
-              account.type === "card"
-                ? "account-row card-account-row"
-                : "account-row"
-            }
-            key={account.id}
-          >
-            <span
-              className={`list-icon ${account.type === "card" ? "card-icon" : "account-icon"}`}
-            >
-              {account.type === "card" ? "▣" : "▤"}
-            </span>
-            <div className="account-info">
-              <strong>{account.name}</strong>
-              <small>
-                {account.type === "card"
-                  ? `Fecha dia ${account.closing} · vence dia ${account.due}`
-                  : account.type === "cash"
-                    ? "Dinheiro"
-                    : "Conta bancária"}
-              </small>
-            </div>
-            {account.type !== "card" && (
-              <strong className="account-balance">
-                {money(balance(data, account))}
-              </strong>
-            )}
-            <div className="actions">
-              <button
-                className="ghost compact-button"
-                onClick={() => onEditAccount(account)}
-              >
-                Editar
-              </button>
-              <button
-                className="ghost compact-button destructive"
-                onClick={() => onDeleteAccount(account)}
-              >
-                Excluir
-              </button>
-            </div>
-          </article>
-        ))}
-        {!data.accounts.length && (
+        {activeAccounts.map((account) => renderAccount(account))}
+        {!activeAccounts.length && (
           <div className="empty">
-            Cadastre uma conta bancária ou cartão para começar.
+            Não há contas ativas. Cadastre ou restaure uma conta para começar.
           </div>
         )}
       </div>
+      {!!archivedAccounts.length && (
+        <details className="archived-accounts">
+          <summary>
+            Contas e cartões arquivados ({archivedAccounts.length})
+          </summary>
+          <div className="compact-list">
+            {archivedAccounts.map((account) => renderAccount(account, true))}
+          </div>
+        </details>
+      )}
     </section>
   );
 }
@@ -542,11 +593,15 @@ type InvoicesProps = {
   onAddInvoice: () => void;
   onEditInvoice: (invoice: ManualInvoice) => void;
   onDeleteInvoice: (invoice: ManualInvoice) => void;
+  onArchiveInvoice: (invoice: ManualInvoice) => void;
+  onRestoreInvoice: (invoice: ManualInvoice) => void;
   onPayInvoice: (
     event: FormEvent<HTMLFormElement>,
     invoice: InvoiceView,
   ) => void;
   onConfirmForecast: (invoice: InvoiceView) => void;
+  onCancelForecast: (invoice: InvoiceView) => void;
+  onClose?: () => void;
 };
 
 export function InvoicesSection({
@@ -556,9 +611,31 @@ export function InvoicesSection({
   onAddInvoice,
   onEditInvoice,
   onDeleteInvoice,
+  onArchiveInvoice,
+  onRestoreInvoice,
   onPayInvoice,
   onConfirmForecast,
+  onCancelForecast,
+  onClose,
 }: InvoicesProps) {
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedInvoiceIds = new Set(
+    data.manualInvoices
+      .filter((invoice) => invoice.archived)
+      .map((invoice) => invoice.id),
+  );
+  const activeBills = bills.filter(
+    (invoice) =>
+      invoice.source !== "manual" ||
+      !invoice.invoiceId ||
+      !archivedInvoiceIds.has(invoice.invoiceId),
+  );
+  const archivedBills = bills.filter(
+    (invoice) =>
+      invoice.source === "manual" &&
+      !!invoice.invoiceId &&
+      archivedInvoiceIds.has(invoice.invoiceId),
+  );
   return (
     <section id="invoices" className="panel section-panel">
       <div className="section-title">
@@ -568,12 +645,19 @@ export function InvoicesSection({
             O valor confirmado é a referência. Previsões não alteram o saldo.
           </small>
         </div>
-        <button className="text-button" onClick={onAddInvoice}>
-          + Fatura
-        </button>
+        <div className="actions">
+          {onClose && (
+            <button className="ghost compact-button" onClick={onClose}>
+              Fechar
+            </button>
+          )}
+          <button className="text-button" onClick={onAddInvoice}>
+            + Fatura
+          </button>
+        </div>
       </div>
       <div className="compact-list">
-        {bills.map((invoice) => {
+        {activeBills.map((invoice) => {
           const remaining = Math.max(0, invoice.total - invoice.paid);
           const status =
             invoice.source === "forecast"
@@ -644,7 +728,10 @@ export function InvoicesSection({
                               Selecione
                             </option>
                             {data.accounts
-                              .filter((account) => account.type !== "card")
+                              .filter(
+                                (account) =>
+                                  account.type !== "card" && !account.archived,
+                              )
                               .map((account) => (
                                 <option key={account.id} value={account.id}>
                                   {account.name}
@@ -678,6 +765,14 @@ export function InvoicesSection({
                       </form>
                     </details>
                   )}
+                  {record && (
+                    <button
+                      className="ghost compact-button"
+                      onClick={() => onArchiveInvoice(record)}
+                    >
+                      Arquivar
+                    </button>
+                  )}
                   {record && invoice.paid === 0 && (
                     <button
                       className="text-button destructive"
@@ -689,20 +784,78 @@ export function InvoicesSection({
                 </div>
               )}
               {invoice.source === "forecast" && (
-                <button
-                  className="ghost compact-button"
-                  onClick={() => onConfirmForecast(invoice)}
-                >
-                  Informar total
-                </button>
+                <div className="invoice-actions">
+                  <button
+                    className="ghost compact-button"
+                    onClick={() => onConfirmForecast(invoice)}
+                  >
+                    Informar total
+                  </button>
+                  <button
+                    className="ghost compact-button destructive"
+                    onClick={() => onCancelForecast(invoice)}
+                  >
+                    Excluir previsão
+                  </button>
+                </div>
               )}
             </article>
           );
         })}
-        {!bills.length && (
+        {!activeBills.length && (
           <div className="empty">Nenhuma fatura ou previsão para este mês.</div>
         )}
       </div>
+      {!!archivedBills.length && (
+        <div className="archived-invoices">
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => setShowArchived((visible) => !visible)}
+          >
+            {showArchived
+              ? "Ocultar faturas arquivadas"
+              : "Faturas arquivadas (" + archivedBills.length + ")"}
+          </button>
+          {showArchived && (
+            <div className="compact-list">
+              {archivedBills.map((invoice) => {
+                const record = data.manualInvoices.find(
+                  (item) => item.id === invoice.invoiceId,
+                );
+                return (
+                  <article
+                    className="invoice-row archived-invoice"
+                    key={invoice.key}
+                  >
+                    <div className="invoice-heading">
+                      <span className="list-icon card-icon">▤</span>
+                      <div>
+                        <strong>{invoice.card.name}</strong>
+                        <small>
+                          {invoice.competence} · paga {money(invoice.paid)} ·
+                          arquivada
+                        </small>
+                      </div>
+                    </div>
+                    <strong className="account-balance">
+                      {money(invoice.total)}
+                    </strong>
+                    {record && (
+                      <button
+                        className="ghost compact-button"
+                        onClick={() => onRestoreInvoice(record)}
+                      >
+                        Restaurar
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

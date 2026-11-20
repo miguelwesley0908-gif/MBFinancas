@@ -44,6 +44,7 @@ export function InvoiceForm({
         total: cents(String(values.get("total") ?? "")),
         dueDate: String(values.get("dueDate") ?? ""),
         recurrenceId: invoice?.recurrenceId ?? null,
+        archived: invoice?.archived ?? false,
       };
       if (!next.total) throw new Error("Informe um total maior que zero.");
       const repeat = !invoice && values.get("repeat") === "on";
@@ -57,6 +58,7 @@ export function InvoiceForm({
   const [selectedCardId, setSelectedCardId] = useState(
     invoice?.cardId ?? cardId ?? firstCard?.id ?? "",
   );
+  const [competence, setCompetence] = useState(invoice?.competence ?? month);
   const [dueDateValue, setDueDateValue] = useState(
     invoice?.dueDate ?? dueDate(month, firstCard?.due ?? 15),
   );
@@ -124,8 +126,16 @@ export function InvoiceForm({
             name="competence"
             type="month"
             required
-            defaultValue={invoice?.competence ?? month}
-            readOnly={!!invoice}
+            value={competence}
+            onChange={(event) => {
+              const value = event.target.value;
+              setCompetence(value);
+              const selectedCard = cards.find(
+                (card) => card.id === selectedCardId,
+              );
+              if (selectedCard)
+                setDueDateValue(dueDate(value, selectedCard.due));
+            }}
           />
         </label>
         <label>

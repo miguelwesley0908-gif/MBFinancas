@@ -45,6 +45,7 @@ export function AccountForm({
         id: account?.id ?? uid(),
         name,
         type: selectedType,
+        archived: account?.archived ?? false,
         opening:
           selectedType === "card"
             ? 0

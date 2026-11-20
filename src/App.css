@@ -63,7 +63,8 @@
   border-bottom: 1px solid #e0e7d9;
   scrollbar-width: thin;
 }
-.module-nav a {
+.module-nav a,
+.module-nav button {
   flex: 0 0 auto;
   min-height: 42px;
   display: inline-flex;
@@ -76,8 +77,10 @@
   font-size: 14px;
   font-weight: 650;
   text-decoration: none;
+  cursor: pointer;
 }
-.module-nav a:hover {
+.module-nav a:hover,
+.module-nav button:hover {
   background: #eaf1e6;
 }
 .dashboard-note {
@@ -123,9 +126,15 @@
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 3.1fr);
   gap: 12px;
   margin-bottom: 18px;
+}
+.monthly-metrics {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 .metric {
   min-width: 0;
@@ -159,6 +168,18 @@
 .metric.featured span,
 .metric.featured small {
   color: #c4d7c3;
+}
+.monthly-metrics .metric {
+  border-top-width: 4px;
+}
+.monthly-metrics .income-metric {
+  border-top-color: #438a62;
+}
+.monthly-metrics .expense-metric {
+  border-top-color: #c5796a;
+}
+.monthly-metrics .result-metric {
+  border-top-color: #6d8b78;
 }
 .section-title {
   display: flex;
@@ -736,7 +757,10 @@ footer {
 }
 @media (max-width: 900px) {
   .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+  }
+  .monthly-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -791,6 +815,10 @@ footer {
   .metrics {
     gap: 8px;
     margin-bottom: 12px;
+  }
+  .monthly-metrics {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
   .metric {
     padding: 12px 11px;
@@ -896,6 +924,19 @@ footer {
   .invoice-actions {
     padding-left: 0;
     justify-content: flex-start;
+  }
+  .archived-accounts,
+  .archived-invoices {
+    margin-top: 12px;
+    border-top: 1px solid #e9ede5;
+    padding-top: 10px;
+  }
+  .archived-accounts > summary {
+    min-height: 38px;
+    color: #31694c;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 650;
   }
   .invoice-list-row .invoice-actions {
     grid-column: 1 / -1;

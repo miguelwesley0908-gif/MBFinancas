@@ -27,6 +27,9 @@ export function RecurrenceForm({
   onError,
 }: Props) {
   const [untilCancelled, setUntilCancelled] = useState(!recurrence?.endDate);
+  const selectableAccounts = accounts.filter(
+    (account) => !account.archived || account.id === recurrence?.account,
+  );
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -127,14 +130,15 @@ export function RecurrenceForm({
             required
             defaultValue={
               recurrence?.account ??
-              accounts.find((account) => account.type !== "card")?.id ??
+              selectableAccounts.find((account) => account.type !== "card")
+                ?.id ??
               ""
             }
           >
             <option value="" disabled>
               Selecione
             </option>
-            {accounts.map((account) => (
+            {selectableAccounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
                 {account.type === "card" ? " · cartão" : ""}

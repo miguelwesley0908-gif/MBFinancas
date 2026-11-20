@@ -57,18 +57,26 @@ export function EntryForm({
   onCancel,
   onError,
 }: EntryFormProps) {
-  const initialMode: ExpenseMode = invoice || invoiceCardId
-    ? "card-invoice"
-    : editing?.type === "expense" &&
-        data.accounts.find((item) => item.id === editing.account)?.type ===
-          "card"
-      ? "card-purchase"
-      : "account";
+  const initialMode: ExpenseMode =
+    invoice || invoiceCardId
+      ? "card-invoice"
+      : editing?.type === "expense" &&
+          data.accounts.find((item) => item.id === editing.account)?.type ===
+            "card"
+        ? "card-purchase"
+        : "account";
   const [type, setType] = useState<Entry["type"]>(
     fixedType ?? editing?.type ?? "expense",
   );
   const [mode, setMode] = useState<ExpenseMode>(initialMode);
-  const firstAccount = data.accounts.find((item) =>
+  const selectableAccounts = data.accounts.filter(
+    (item) =>
+      !item.archived ||
+      item.id === invoice?.cardId ||
+      item.id === editing?.account ||
+      item.id === editing?.destination,
+  );
+  const firstAccount = selectableAccounts.find((item) =>
     initialMode === "card-purchase" || initialMode === "card-invoice"
       ? item.type === "card"
       : item.type !== "card",
@@ -78,18 +86,23 @@ export function EntryForm({
       invoiceCardId ??
       editing?.account ??
       firstAccount?.id ??
-      data.accounts[0]?.id ??
+      selectableAccounts[0]?.id ??
       "",
   );
-  const [competence, setCompetence] = useState(
-    invoice?.competence ?? month,
-  );
+  const [competence, setCompetence] = useState(invoice?.competence ?? month);
   const [dueDateValue, setDueDateValue] = useState(
     invoice?.dueDate ??
-      dueDate(month, data.accounts.find((item) => item.id === (invoiceCardId ?? account))?.due ?? 15),
+      dueDate(
+        month,
+        selectableAccounts.find(
+          (item) => item.id === (invoiceCardId ?? account),
+        )?.due ?? 15,
+      ),
   );
-  const cards = data.accounts.filter((item) => item.type === "card");
-  const ordinaryAccounts = data.accounts.filter((item) => item.type !== "card");
+  const cards = selectableAccounts.filter((item) => item.type === "card");
+  const ordinaryAccounts = selectableAccounts.filter(
+    (item) => item.type !== "card",
+  );
   const availableAccounts =
     type === "expense"
       ? mode === "account"
@@ -112,7 +125,7 @@ export function EntryForm({
 
   function changeMode(nextMode: ExpenseMode) {
     setMode(nextMode);
-    const nextAccount = data.accounts.find((item) =>
+    const nextAccount = selectableAccounts.find((item) =>
       nextMode === "account" ? item.type !== "card" : item.type === "card",
     );
     if (nextAccount) {
@@ -133,6 +146,7 @@ export function EntryForm({
         total: cents(String(values.get("amount") ?? "")),
         dueDate: String(values.get("dueDate") ?? ""),
         recurrenceId: invoice?.recurrenceId ?? null,
+        archived: invoice?.archived ?? false,
       };
       if (!next.total) throw new Error("Informe um valor maior que zero.");
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(next.competence))
@@ -155,7 +169,9 @@ export function EntryForm({
             Fechar
           </button>
         </div>
-        <p className="empty">Cadastre uma conta ou cartão antes de continuar.</p>
+        <p className="empty">
+          Cadastre uma conta ou cartão antes de continuar.
+        </p>
       </section>
     );
   }
@@ -236,7 +252,9 @@ export function EntryForm({
               </button>
               <button
                 type="button"
-                className={mode === "card-purchase" ? "choice active" : "choice"}
+                className={
+                  mode === "card-purchase" ? "choice active" : "choice"
+                }
                 aria-pressed={mode === "card-purchase"}
                 onClick={() => changeMode("card-purchase")}
               >
@@ -290,7 +308,8 @@ export function EntryForm({
                   const id = event.target.value;
                   setAccount(id);
                   const selected = cards.find((item) => item.id === id);
-                  if (selected) setDueDateValue(dueDate(competence, selected.due));
+                  if (selected)
+                    setDueDateValue(dueDate(competence, selected.due));
                 }}
               >
                 <option value="">Selecione o cartão</option>
@@ -308,7 +327,6 @@ export function EntryForm({
                 type="month"
                 required
                 value={competence}
-                readOnly={!!invoice}
                 onChange={(event) => {
                   const value = event.target.value;
                   setCompetence(value);
@@ -432,7 +450,9 @@ export function EntryForm({
                 maxLength={120}
                 autoComplete="off"
                 defaultValue={editing?.description}
-                placeholder={type === "expense" ? "Ex.: mercado, aluguel…" : "Opcional"}
+                placeholder={
+                  type === "expense" ? "Ex.: mercado, aluguel…" : "Opcional"
+                }
               />
             </label>
           </>

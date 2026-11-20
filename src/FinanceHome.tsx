@@ -44,6 +44,7 @@ import { RecurrenceForm } from "./components/RecurrenceForm";
 
 type Modal =
   | "menu"
+  | "invoices"
   | "expense"
   | "income"
   | "transfer"
@@ -128,6 +129,7 @@ export function FinanceHome({
   const [editingInvoice, setEditingInvoice] = useState<ManualInvoice | null>(
     null,
   );
+  const [returnToInvoices, setReturnToInvoices] = useState(false);
   const [newInvoiceCardId, setNewInvoiceCardId] = useState("");
   const [editingRecurrence, setEditingRecurrence] =
     useState<ExpenseRecurrence | null>(null);
@@ -240,11 +242,13 @@ export function FinanceHome({
 
   function openAdd() {
     setModal("menu");
+    setReturnToInvoices(false);
     setNewInvoiceCardId("");
     setMessage("");
   }
   function choose(kind: Modal) {
     setModal(kind);
+    setReturnToInvoices(false);
     setEditingEntry(null);
     setEditingAccount(null);
     setEditingInvoice(null);
@@ -253,7 +257,9 @@ export function FinanceHome({
     setMessage("");
   }
   function closeModal() {
-    setModal(null);
+    const returnToInvoiceList = returnToInvoices;
+    setReturnToInvoices(false);
+    setModal(returnToInvoiceList ? "invoices" : null);
     setEditingEntry(null);
     setEditingAccount(null);
     setEditingInvoice(null);
@@ -458,7 +464,17 @@ export function FinanceHome({
         item.competence === invoice.competence,
     );
     if (duplicate) {
-      setMessage("Já existe uma fatura para este cartão e mês.");
+      if (!editingInvoice) {
+        setEditingEntry(null);
+        setEditingInvoice({ ...duplicate, archived: false });
+        setMessage(
+          "Esta fatura já existe. Abri o registro existente para edição.",
+        );
+      } else {
+        setMessage(
+          "Já existe outra fatura para este cartão e mês. Escolha um mês diferente.",
+        );
+      }
       return false;
     }
     if (
@@ -487,11 +503,10 @@ export function FinanceHome({
         (entry) =>
           entry.type === "transfer" && entry.invoice === "manual:" + prior.id,
       ) &&
-      (prior.cardId !== invoice.cardId ||
-        prior.competence !== invoice.competence)
+      prior.cardId !== invoice.cardId
     ) {
       setMessage(
-        "Não é possível alterar o cartão ou o mês de uma fatura que já recebeu pagamentos.",
+        "Não é possível trocar o cartão de uma fatura que já recebeu pagamentos.",
       );
       return false;
     }
@@ -537,7 +552,6 @@ export function FinanceHome({
       ],
     });
     if (saved) {
-      closeModal();
       setMessage("Fatura salva.");
     }
     return saved;
@@ -769,22 +783,73 @@ export function FinanceHome({
     });
   }
 
-  async function deleteAccount(account: Account) {
-    const used =
+  function accountHasHistory(accountId: string) {
+    return (
       data.entries.some(
         (entry) =>
-          entry.account === account.id || entry.destination === account.id,
+          entry.account === accountId || entry.destination === accountId,
       ) ||
-      data.recurrences.some(
-        (recurrence) => recurrence.account === account.id,
-      ) ||
-      data.manualInvoices.some((invoice) => invoice.cardId === account.id) ||
+      data.recurrences.some((recurrence) => recurrence.account === accountId) ||
+      data.manualInvoices.some((invoice) => invoice.cardId === accountId) ||
       data.invoiceRecurrences.some(
-        (recurrence) => recurrence.cardId === account.id,
-      );
-    if (used) {
+        (recurrence) => recurrence.cardId === accountId,
+      )
+    );
+  }
+
+  async function archiveAccount(account: Account) {
+    if (account.archived) return;
+    if (
+      !confirm(
+        "Arquivar " +
+          account.name +
+          "? O histórico será mantido e as previsões vinculadas serão encerradas.",
+      )
+    )
+      return;
+    const invoiceRecurrences = data.invoiceRecurrences.map((plan) =>
+      plan.cardId === account.id && plan.status !== "ended"
+        ? {
+            ...plan,
+            status: "ended" as const,
+            endMonth: month < plan.startMonth ? plan.startMonth : month,
+          }
+        : plan,
+    );
+    const recurrences = data.recurrences.map((recurrence) =>
+      recurrence.account === account.id && recurrence.status !== "ended"
+        ? setRecurrenceStatus(recurrence, "end")
+        : recurrence,
+    );
+    if (
+      await save({
+        ...data,
+        accounts: data.accounts.map((item) =>
+          item.id === account.id ? { ...item, archived: true } : item,
+        ),
+        recurrences,
+        invoiceRecurrences,
+      })
+    )
+      setMessage("Conta arquivada. O histórico financeiro foi mantido.");
+  }
+
+  async function restoreAccount(account: Account) {
+    if (
+      await save({
+        ...data,
+        accounts: data.accounts.map((item) =>
+          item.id === account.id ? { ...item, archived: false } : item,
+        ),
+      })
+    )
+      setMessage("Conta restaurada.");
+  }
+
+  async function deleteAccount(account: Account) {
+    if (accountHasHistory(account.id)) {
       setMessage(
-        "Esta conta tem movimentações, faturas ou recorrências vinculadas e não pode ser excluída.",
+        "Esta conta tem histórico vinculado. Use Arquivar para removê-la da lista sem perder os registros.",
       );
       return;
     }
@@ -799,6 +864,15 @@ export function FinanceHome({
   }
 
   async function deleteManualInvoice(invoice: ManualInvoice) {
+    const invoiceKey = "manual:" + invoice.id;
+    if (
+      data.entries.some(
+        (entry) => entry.type === "transfer" && entry.invoice === invoiceKey,
+      )
+    ) {
+      await archiveManualInvoice(invoice);
+      return;
+    }
     if (!confirm("Excluir esta fatura?")) return;
     if (
       await save({
@@ -809,6 +883,32 @@ export function FinanceHome({
       })
     )
       setMessage("Fatura excluída.");
+  }
+
+  async function archiveManualInvoice(invoice: ManualInvoice) {
+    if (
+      await save({
+        ...data,
+        manualInvoices: data.manualInvoices.map((item) =>
+          item.id === invoice.id ? { ...item, archived: true } : item,
+        ),
+      })
+    )
+      setMessage(
+        "Fatura arquivada. Os pagamentos foram mantidos no histórico.",
+      );
+  }
+
+  async function restoreManualInvoice(invoice: ManualInvoice) {
+    if (
+      await save({
+        ...data,
+        manualInvoices: data.manualInvoices.map((item) =>
+          item.id === invoice.id ? { ...item, archived: false } : item,
+        ),
+      })
+    )
+      setMessage("Fatura restaurada.");
   }
 
   async function addCategory(event: FormEvent<HTMLFormElement>) {
@@ -967,7 +1067,15 @@ export function FinanceHome({
 
       <nav className="module-nav" aria-label="Módulos do aplicativo">
         <a href="#movements">Movimentações</a>
-        <a href="#invoices">Faturas</a>
+        <button
+          type="button"
+          onClick={() => {
+            setReturnToInvoices(false);
+            setModal("invoices");
+          }}
+        >
+          Faturas
+        </button>
         <a href="#accounts">Contas e cartões</a>
         <a href="#planning">Planejamento</a>
         <a href="#settings">Configurações</a>
@@ -982,27 +1090,29 @@ export function FinanceHome({
           <strong>{money(bankBalance)}</strong>
           <small>Contas e dinheiro, sem previsões</small>
         </article>
-        <article className="metric">
-          <span>Receitas do mês</span>
-          <strong>{money(monthlyIncome)}</strong>
-          <small>Entradas registradas</small>
-        </article>
-        <article className="metric">
-          <span>Despesas do mês</span>
-          <strong>{money(monthlyExpenses)}</strong>
-          <small>Inclui compras e faturas dos cartões</small>
-        </article>
-        <article className="metric">
-          <span>Resultado do mês</span>
-          <strong
-            className={
-              monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"
-            }
-          >
-            {money(monthlyIncome - monthlyExpenses)}
-          </strong>
-          <small>Receitas menos despesas registradas</small>
-        </article>
+        <div className="monthly-metrics">
+          <article className="metric income-metric">
+            <span>Receitas do mês</span>
+            <strong>{money(monthlyIncome)}</strong>
+            <small>Entradas registradas</small>
+          </article>
+          <article className="metric expense-metric">
+            <span>Despesas do mês</span>
+            <strong>{money(monthlyExpenses)}</strong>
+            <small>Inclui compras e faturas dos cartões</small>
+          </article>
+          <article className="metric result-metric">
+            <span>Resultado do mês</span>
+            <strong
+              className={
+                monthlyIncome - monthlyExpenses < 0 ? "negative" : "positive"
+              }
+            >
+              {money(monthlyIncome - monthlyExpenses)}
+            </strong>
+            <small>Receitas menos despesas registradas</small>
+          </article>
+        </div>
       </section>
       <div className="dashboard-note">
         <strong>Cartões em aberto: {money(outstandingInvoices)}</strong>
@@ -1053,30 +1163,6 @@ export function FinanceHome({
           void occurrenceAction(occurrence, recurrence, action)
         }
       />
-      <InvoicesSection
-        data={data}
-        month={month}
-        bills={currentBills}
-        onAddInvoice={() => {
-          setEditingEntry(null);
-          setEditingInvoice(null);
-          setNewInvoiceCardId("");
-          setModal("expense");
-        }}
-        onEditInvoice={(invoice) => {
-          setEditingEntry(null);
-          setEditingInvoice(invoice);
-          setModal("expense");
-        }}
-        onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
-        onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
-        onConfirmForecast={(invoice) => {
-          setEditingEntry(null);
-          setEditingInvoice(null);
-          setNewInvoiceCardId(invoice.card.id);
-          setModal("expense");
-        }}
-      />
       <AccountsSection
         data={data}
         onAddAccount={() => choose("bank")}
@@ -1085,6 +1171,8 @@ export function FinanceHome({
           setModal("edit-account");
         }}
         onDeleteAccount={(account) => void deleteAccount(account)}
+        onArchiveAccount={(account) => void archiveAccount(account)}
+        onRestoreAccount={(account) => void restoreAccount(account)}
       />
 
       <PlanningSection
@@ -1124,6 +1212,51 @@ export function FinanceHome({
       </footer>
 
       <Dialog open={modal !== null} onClose={closeModal}>
+        {modal === "invoices" && (
+          <InvoicesSection
+            data={data}
+            month={month}
+            bills={currentBills}
+            onClose={() => {
+              setReturnToInvoices(false);
+              closeModal();
+            }}
+            onAddInvoice={() => {
+              setReturnToInvoices(true);
+              setEditingEntry(null);
+              setEditingInvoice(null);
+              setNewInvoiceCardId("");
+              setModal("expense");
+            }}
+            onEditInvoice={(invoice) => {
+              setReturnToInvoices(true);
+              setEditingEntry(null);
+              setEditingInvoice(invoice);
+              setModal("expense");
+            }}
+            onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
+            onArchiveInvoice={(invoice) => void archiveManualInvoice(invoice)}
+            onRestoreInvoice={(invoice) => void restoreManualInvoice(invoice)}
+            onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
+            onConfirmForecast={(invoice) => {
+              setReturnToInvoices(true);
+              setEditingEntry(null);
+              setEditingInvoice(null);
+              setNewInvoiceCardId(invoice.card.id);
+              setModal("expense");
+            }}
+            onCancelForecast={(invoice) => {
+              const plan = data.invoiceRecurrences.find(
+                (item) => item.id === invoice.recurrenceId,
+              );
+              if (
+                plan &&
+                confirm("Encerrar esta previsão e os próximos meses?")
+              )
+                void invoicePlanAction(plan, "end");
+            }}
+          />
+        )}
         {modal === "menu" && (
           <section className="panel modal-panel add-menu">
             <div className="section-title">
@@ -1282,11 +1415,17 @@ export function FinanceHome({
                   name="account"
                   defaultValue={selectedOccurrence.occurrence.account}
                 >
-                  {data.accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
+                  {data.accounts
+                    .filter(
+                      (account) =>
+                        !account.archived ||
+                        account.id === selectedOccurrence.occurrence.account,
+                    )
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label>

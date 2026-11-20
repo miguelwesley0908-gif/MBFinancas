@@ -6,6 +6,7 @@ export type Account = {
   opening: number;
   closing: number;
   due: number;
+  archived?: boolean;
 };
 export type Category = { id: string; name: string; group: Group };
 export type Entry = {
@@ -67,6 +68,7 @@ export type ManualInvoice = {
   total: number;
   dueDate: string;
   recurrenceId: string | null;
+  archived?: boolean;
 };
 export type InvoiceRecurrence = {
   id: string;
@@ -87,6 +89,7 @@ export type InvoiceView = {
   source: "purchase" | "manual" | "forecast";
   competence: string;
   invoiceId?: string;
+  recurrenceId?: string;
 };
 export type ExpenseOccurrence = {
   key: string;
@@ -150,8 +153,15 @@ export function upgradeData(data: Data): Data {
   return {
     ...data,
     categories,
+    accounts: data.accounts.map((account) => ({
+      ...account,
+      archived: account.archived ?? false,
+    })),
     recurrences: data.recurrences ?? [],
-    manualInvoices: data.manualInvoices ?? [],
+    manualInvoices: (data.manualInvoices ?? []).map((invoice) => ({
+      ...invoice,
+      archived: invoice.archived ?? false,
+    })),
     invoiceRecurrences: data.invoiceRecurrences ?? [],
   };
 }
@@ -389,7 +399,7 @@ export function invoiceForecasts(data: Data, month: string): InvoiceView[] {
     const card = data.accounts.find(
       (account) => account.id === recurrence.cardId,
     );
-    if (!card || card.type !== "card") return [];
+    if (!card || card.type !== "card" || card.archived) return [];
     const hasInvoice =
       (data.manualInvoices ?? []).some(
         (invoice) => invoice.cardId === card.id && invoice.competence === month,
@@ -414,6 +424,7 @@ export function invoiceForecasts(data: Data, month: string): InvoiceView[] {
         paid: 0,
         source: "forecast" as const,
         competence: month,
+        recurrenceId: recurrence.id,
       },
     ];
   });
@@ -627,7 +638,8 @@ export function validate(data: Data): Data {
       !Number.isInteger(a.due) ||
       a.due < 1 ||
       a.due > 31 ||
-      (a.type === "card" && a.opening !== 0)
+      (a.type === "card" && a.opening !== 0) ||
+      (a.archived !== undefined && typeof a.archived !== "boolean")
     )
       throw new Error("Conta inválida.");
   for (const c of data.categories)
@@ -827,6 +839,8 @@ export function validate(data: Data): Data {
       invoice.total <= 0 ||
       invoice.total > 100000000000 ||
       !validDate(invoice.dueDate) ||
+      (invoice.archived !== undefined &&
+        typeof invoice.archived !== "boolean") ||
       (invoice.recurrenceId !== null &&
         !invoiceRecurrences.some(
           (plan) =>
