@@ -69,6 +69,8 @@ export type ManualInvoice = {
   dueDate: string;
   recurrenceId: string | null;
   archived?: boolean;
+  /** Purchase installments already represented by a paid legacy invoice. */
+  purchaseBaselineTotal?: number;
 };
 export type InvoiceRecurrence = {
   id: string;
@@ -90,6 +92,16 @@ export type InvoiceView = {
   competence: string;
   invoiceId?: string;
   recurrenceId?: string;
+  paymentKeys?: string[];
+  purchaseDetails?: {
+    entryId: string;
+    description: string;
+    amount: number;
+    date: string;
+    installmentNumber: number;
+    installments: number;
+  }[];
+  archived?: boolean;
 };
 export type ExpenseOccurrence = {
   key: string;
@@ -158,10 +170,35 @@ export function upgradeData(data: Data): Data {
       archived: account.archived ?? false,
     })),
     recurrences: data.recurrences ?? [],
-    manualInvoices: (data.manualInvoices ?? []).map((invoice) => ({
-      ...invoice,
-      archived: invoice.archived ?? false,
-    })),
+    manualInvoices: (data.manualInvoices ?? []).map((invoice) => {
+      const parts = data.entries
+        .filter(
+          (entry) =>
+            entry.type === "expense" && entry.account === invoice.cardId,
+        )
+        .flatMap((entry) =>
+          entry.schedule.filter((part) =>
+            part.date.startsWith(invoice.dueDate.slice(0, 7)),
+          ),
+        );
+      const paymentKeys = new Set([
+        `manual:${invoice.id}`,
+        ...parts.map((part) => `${invoice.cardId}|${part.date}`),
+      ]);
+      const hasPayment = data.entries.some(
+        (entry) =>
+          entry.type === "transfer" && paymentKeys.has(entry.invoice),
+      );
+      return {
+        ...invoice,
+        archived: invoice.archived ?? false,
+        purchaseBaselineTotal:
+          invoice.purchaseBaselineTotal ??
+          (hasPayment
+            ? parts.reduce((sum, part) => sum + part.amount, 0)
+            : 0),
+      };
+    }),
     invoiceRecurrences: data.invoiceRecurrences ?? [],
   };
 }
@@ -211,7 +248,9 @@ export function schedule(
   const [y, m, d] = date.split("-").map(Number);
   let closingMonth = m - 1;
   const effectiveClosing = Math.min(card.closing, new Date(y, m, 0).getDate());
-  if (d > effectiveClosing) closingMonth++;
+  // The closing day belongs to the next cycle: day 12 goes into this month's
+  // due date, while day 13 (the closing date) starts the following invoice.
+  if (d >= effectiveClosing) closingMonth++;
   const closingDate = dateAt(y, closingMonth, card.closing);
   let dueMonth = closingMonth;
   if (dateAt(y, dueMonth, card.due) <= closingDate) dueMonth++;
@@ -245,10 +284,6 @@ const validDate = (s: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const [y, m, d] = s.split("-").map(Number);
   return dateAt(y, m - 1, d) === s;
-};
-const monthDate = (month: string, day: number, offset = 0) => {
-  const [y, m] = month.split("-").map(Number);
-  return dateAt(y, m - 1 + offset, day);
 };
 export function recurringDate(
   start: string,
@@ -388,47 +423,6 @@ export function nextUnsettledOccurrence(
   }
   return null;
 }
-export function invoiceForecasts(data: Data, month: string): InvoiceView[] {
-  return (data.invoiceRecurrences ?? []).flatMap((recurrence) => {
-    if (
-      recurrence.status !== "active" ||
-      month < recurrence.startMonth ||
-      (recurrence.endMonth && month > recurrence.endMonth)
-    )
-      return [];
-    const card = data.accounts.find(
-      (account) => account.id === recurrence.cardId,
-    );
-    if (!card || card.type !== "card" || card.archived) return [];
-    const hasInvoice =
-      (data.manualInvoices ?? []).some(
-        (invoice) => invoice.cardId === card.id && invoice.competence === month,
-      ) ||
-      invoices(data).some(
-        (invoice) =>
-          invoice.source === "purchase" &&
-          invoice.card.id === card.id &&
-          invoice.competence === month,
-      );
-    if (hasInvoice) return [];
-    return [
-      {
-        key: `forecast:${recurrence.id}:${month}`,
-        card,
-        date: monthDate(
-          month,
-          recurrence.dueDay,
-          recurrence.dueMonthOffset ?? 0,
-        ),
-        total: recurrence.amount,
-        paid: 0,
-        source: "forecast" as const,
-        competence: month,
-        recurrenceId: recurrence.id,
-      },
-    ];
-  });
-}
 export function expenseTotalForMonth(data: Data, month: string): number {
   const cashAndBank = data.entries
     .filter(
@@ -439,25 +433,19 @@ export function expenseTotalForMonth(data: Data, month: string): number {
           "card",
     )
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const cardPurchases = invoices(data)
+  const cardInvoices = invoices(data)
     .filter(
-      (invoice) =>
-        invoice.source === "purchase" && invoice.competence === month,
+      (invoice) => invoice.date.slice(0, 7) === month,
     )
     .reduce((sum, invoice) => sum + invoice.total, 0);
-  const manualTotals = (data.manualInvoices ?? [])
-    .filter((invoice) => invoice.competence === month)
-    .reduce((sum, invoice) => sum + invoice.total, 0);
-  return cashAndBank + cardPurchases + manualTotals;
+  return cashAndBank + cardInvoices;
 }
 export function projectedExpenseTotalForMonth(data: Data, month: string) {
-  const plannedInvoices = invoiceForecasts(data, month);
-  const invoicesAlreadyRepresented = new Set([
-    ...invoices(data)
-      .filter((invoice) => invoice.competence === month)
+  const invoicesAlreadyRepresented = new Set(
+    invoices(data)
+      .filter((invoice) => invoice.date.slice(0, 7) === month)
       .map((invoice) => invoice.card.id),
-    ...plannedInvoices.map((invoice) => invoice.card.id),
-  ]);
+  );
   const recurringForecast = data.recurrences
     .flatMap((recurrence) => occurrenceForMonth(recurrence, month, data))
     .reduce((sum, occurrence) => {
@@ -472,13 +460,7 @@ export function projectedExpenseTotalForMonth(data: Data, month: string) {
       }
       return occurrence.status === "pending" ? sum + occurrence.amount : sum;
     }, 0);
-  const plannedInvoiceTotal = plannedInvoices.reduce(
-    (sum, invoice) => sum + invoice.total,
-    0,
-  );
-  return (
-    expenseTotalForMonth(data, month) + recurringForecast + plannedInvoiceTotal
-  );
+  return expenseTotalForMonth(data, month) + recurringForecast;
 }
 export type OccurrenceChanges = Pick<
   RecurrenceOverride,
@@ -577,49 +559,101 @@ export function settleOccurrence(
   };
 }
 export function invoices(data: Data): InvoiceView[] {
-  const map = new Map<string, InvoiceView>();
-  for (const entry of data.entries)
-    if (entry.type === "expense") {
-      const card = data.accounts.find(
-        (a) => a.id === entry.account && a.type === "card",
-      );
-      if (!card) continue;
-      for (const part of entry.schedule) {
-        const key = card.id + "|" + part.date;
-        const invoice = map.get(key) ?? {
-          key,
-          card,
-          date: part.date,
-          total: 0,
-          paid: 0,
-          source: "purchase",
-          competence: part.date.slice(0, 7),
-        };
-        invoice.total += part.amount;
-        map.set(key, invoice);
-      }
+  const groups = new Map<
+    string,
+    {
+      card: Account;
+      month: string;
+      parts: {
+        entry: Entry;
+        date: string;
+        amount: number;
+        installmentNumber: number;
+      }[];
+      manuals: ManualInvoice[];
     }
-  for (const e of data.entries)
-    if (e.type === "transfer" && e.invoice && map.has(e.invoice))
-      map.get(e.invoice)!.paid += e.amount;
-  for (const manual of data.manualInvoices ?? []) {
-    const card = data.accounts.find((account) => account.id === manual.cardId);
+  >();
+  const getGroup = (card: Account, month: string) => {
+    const key = `${card.id}|${month}`;
+    const current = groups.get(key);
+    if (current) return current;
+    const created = { card, month, parts: [], manuals: [] };
+    groups.set(key, created);
+    return created;
+  };
+
+  for (const entry of data.entries) {
+    if (entry.type !== "expense") continue;
+    const card = data.accounts.find(
+      (account) => account.id === entry.account && account.type === "card",
+    );
     if (!card) continue;
-    const key = `manual:${manual.id}`;
-    map.set(key, {
-      key,
-      card,
-      date: manual.dueDate,
-      total: manual.total,
-      paid: data.entries
-        .filter((entry) => entry.type === "transfer" && entry.invoice === key)
-        .reduce((sum, entry) => sum + entry.amount, 0),
-      source: "manual",
-      competence: manual.competence,
-      invoiceId: manual.id,
+    entry.schedule.forEach((part, index) => {
+      getGroup(card, part.date.slice(0, 7)).parts.push({
+        entry,
+        date: part.date,
+        amount: part.amount,
+        installmentNumber: index + 1,
+      });
     });
   }
-  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const manual of data.manualInvoices ?? []) {
+    const card = data.accounts.find((account) => account.id === manual.cardId);
+    if (card) getGroup(card, manual.dueDate.slice(0, 7)).manuals.push(manual);
+  }
+
+  const transfers = data.entries.filter((entry) => entry.type === "transfer");
+  const result: InvoiceView[] = [];
+  for (const group of groups.values()) {
+    const manual =
+      [...group.manuals].reverse().find((item) => !item.archived) ??
+      group.manuals.at(-1);
+    const manualKeys = group.manuals.map((item) => `manual:${item.id}`);
+    const purchaseKeys = group.parts.map(
+      (part) => `${group.card.id}|${part.date}`,
+    );
+    const key =
+      (manual && `manual:${manual.id}`) ??
+      purchaseKeys[0] ??
+      `${group.card.id}|${group.month}`;
+    const paymentKeys = [...new Set([key, ...manualKeys, ...purchaseKeys])];
+    const paid = transfers
+      .filter((entry) => paymentKeys.includes(entry.invoice))
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const purchaseTotal = group.parts.reduce(
+      (sum, part) => sum + part.amount,
+      0,
+    );
+    result.push({
+      key,
+      card: group.card,
+      date: manual?.dueDate ?? group.parts[0]?.date ?? `${group.month}-01`,
+      total: manual
+        ? Math.max(
+            manual.total,
+            manual.total + purchaseTotal - (manual.purchaseBaselineTotal ?? 0),
+          )
+        : purchaseTotal,
+      paid,
+      source: manual ? "manual" : "purchase",
+      competence: manual?.competence ?? group.month,
+      invoiceId: manual?.id,
+      recurrenceId: manual?.recurrenceId ?? undefined,
+      archived: !!manual?.archived,
+      paymentKeys,
+      purchaseDetails: group.parts.map((part) => ({
+        entryId: part.entry.id,
+        description: part.entry.description,
+        amount: part.amount,
+        date: part.date,
+        installmentNumber: part.installmentNumber,
+        installments: part.entry.installments,
+      })),
+    });
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date));
 }
 export function validate(data: Data): Data {
   if (
@@ -736,7 +770,12 @@ export function validate(data: Data): Data {
       e.installments > 120
     )
       throw new Error("Detalhes do lançamento inválidos.");
-    if (e.schedule.some((p) => !validDate(p.date)))
+    if (
+      e.schedule.some(
+        (part) =>
+          !validDate(part.date),
+      )
+    )
       throw new Error("Vencimento inválido.");
     const isCard =
       data.accounts.find((a) => a.id === e.account)?.type === "card";
@@ -748,7 +787,9 @@ export function validate(data: Data): Data {
         destination.type === "card" &&
         (!e.invoice ||
           !invoices(data).some(
-            (i) => i.key === e.invoice && i.card.id === destination.id,
+            (i) =>
+              i.card.id === destination.id &&
+              (i.key === e.invoice || i.paymentKeys?.includes(e.invoice)),
           ))
       )
         throw new Error("Pagamento sem fatura correspondente.");
@@ -871,6 +912,10 @@ export function validate(data: Data): Data {
       !validDate(invoice.dueDate) ||
       (invoice.archived !== undefined &&
         typeof invoice.archived !== "boolean") ||
+      (invoice.purchaseBaselineTotal !== undefined &&
+        (!Number.isSafeInteger(invoice.purchaseBaselineTotal) ||
+          invoice.purchaseBaselineTotal < 0 ||
+          invoice.purchaseBaselineTotal > 100000000000)) ||
       (invoice.recurrenceId !== null &&
         !invoiceRecurrences.some(
           (plan) =>

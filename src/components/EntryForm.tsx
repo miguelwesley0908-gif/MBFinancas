@@ -1,30 +1,23 @@
 import { useState, type FormEvent } from "react";
 import {
-  cents,
   today,
-  uid,
   type Data,
   type Entry,
-  type ManualInvoice,
 } from "../domain";
 
-type ExpenseMode = "account" | "card-purchase" | "card-invoice";
+type ExpenseMode = "account" | "card-purchase";
 type EntryFormProps = {
   data: Data;
   editing?: Entry | null;
-  invoice?: ManualInvoice | null;
-  month: string;
   invoiceCardId?: string;
-  startAsInvoice?: boolean;
+  startAsCardPurchase?: boolean;
   fixedType?: Entry["type"];
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
     type: Entry["type"],
     account: string,
   ) => void;
-  onSaveInvoice: (invoice: ManualInvoice, repeat: boolean) => Promise<boolean>;
   onCancel: () => void;
-  onError: (message: string) => void;
 };
 
 const entryTypes: { value: Entry["type"]; label: string }[] = [
@@ -33,40 +26,21 @@ const entryTypes: { value: Entry["type"]; label: string }[] = [
   { value: "transfer", label: "Transferência" },
 ];
 
-function dueDate(month: string, day: number) {
-  const [year, value] = month.split("-").map(Number);
-  return new Date(
-    Date.UTC(
-      year,
-      value,
-      Math.min(day, new Date(Date.UTC(year, value + 1, 0)).getUTCDate()),
-    ),
-  )
-    .toISOString()
-    .slice(0, 10);
-}
-
 export function EntryForm({
   data,
   editing,
-  invoice,
-  month,
   invoiceCardId,
-  startAsInvoice = false,
+  startAsCardPurchase = false,
   fixedType,
   onSubmit,
-  onSaveInvoice,
   onCancel,
-  onError,
 }: EntryFormProps) {
   const initialMode: ExpenseMode =
-    invoice || invoiceCardId || startAsInvoice
-      ? "card-invoice"
-      : editing?.type === "expense" &&
-          data.accounts.find((item) => item.id === editing.account)?.type ===
-            "card"
-        ? "card-purchase"
-        : "account";
+    startAsCardPurchase || invoiceCardId ||
+    (editing?.type === "expense" &&
+      data.accounts.find((item) => item.id === editing.account)?.type === "card")
+      ? "card-purchase"
+      : "account";
   const [type, setType] = useState<Entry["type"]>(
     fixedType ?? editing?.type ?? "expense",
   );
@@ -74,32 +48,21 @@ export function EntryForm({
   const selectableAccounts = data.accounts.filter(
     (item) =>
       !item.archived ||
-      item.id === invoice?.cardId ||
+      item.id === invoiceCardId ||
       item.id === editing?.account ||
       item.id === editing?.destination,
   );
   const firstAccount = selectableAccounts.find((item) =>
-    initialMode === "card-purchase" || initialMode === "card-invoice"
+    initialMode === "card-purchase"
       ? item.type === "card"
       : item.type !== "card",
   );
   const [account, setAccount] = useState(
-    invoice?.cardId ??
-      invoiceCardId ??
-      editing?.account ??
-      firstAccount?.id ??
-      selectableAccounts[0]?.id ??
+    invoiceCardId ||
+      editing?.account ||
+      firstAccount?.id ||
+      selectableAccounts[0]?.id ||
       "",
-  );
-  const [competence, setCompetence] = useState(invoice?.competence ?? month);
-  const [dueDateValue, setDueDateValue] = useState(
-    invoice?.dueDate ??
-      dueDate(
-        month,
-        selectableAccounts.find(
-          (item) => item.id === (invoiceCardId ?? account),
-        )?.due ?? 15,
-      ),
   );
   const cards = selectableAccounts.filter((item) => item.type === "card");
   const ordinaryAccounts = selectableAccounts.filter(
@@ -132,33 +95,6 @@ export function EntryForm({
     );
     if (nextAccount) {
       setAccount(nextAccount.id);
-      if (nextMode === "card-invoice")
-        setDueDateValue(dueDate(competence, nextAccount.due));
-    }
-  }
-
-  async function submitInvoice(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const values = new FormData(event.currentTarget);
-    try {
-      const next: ManualInvoice = {
-        id: invoice?.id ?? uid(),
-        cardId: account,
-        competence: String(values.get("competence") ?? ""),
-        total: cents(String(values.get("amount") ?? "")),
-        dueDate: String(values.get("dueDate") ?? ""),
-        recurrenceId: invoice?.recurrenceId ?? null,
-        archived: invoice?.archived ?? false,
-      };
-      if (!next.total) throw new Error("Informe um valor maior que zero.");
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(next.competence))
-        throw new Error("Escolha o mês de referência da fatura.");
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(next.dueDate))
-        throw new Error("Informe uma data de vencimento válida.");
-      const repeat = !invoice && values.get("repeat") === "on";
-      if (await onSaveInvoice(next, repeat)) onCancel();
-    } catch (error) {
-      onError((error as Error).message);
     }
   }
 
@@ -166,13 +102,15 @@ export function EntryForm({
     return (
       <section className="panel modal-panel">
         <div className="section-title">
-          <h2>{invoice ? "Editar fatura" : "Registrar despesa"}</h2>
+          <h2>{startAsCardPurchase ? "Adicionar compra à fatura" : "Registrar despesa"}</h2>
           <button className="ghost" type="button" onClick={onCancel}>
             Fechar
           </button>
         </div>
         <p className="empty">
-          Cadastre uma conta ou cartão antes de continuar.
+          {startAsCardPurchase
+            ? "Cadastre um cartão em Contas e cartões antes de continuar."
+            : "Cadastre uma conta bancária ou cartão antes de continuar."}
         </p>
       </section>
     );
@@ -183,12 +121,10 @@ export function EntryForm({
       <div className="section-title">
         <div>
           <h2>
-            {invoice
-              ? "Editar fatura"
-              : editing
+            {editing
                 ? "Editar movimentação"
-                : type === "expense" && mode === "card-invoice"
-                  ? "Registrar fatura"
+                : startAsCardPurchase
+                  ? "Adicionar compra à fatura"
                   : type === "expense"
                     ? "Registrar despesa"
                     : type === "income"
@@ -197,9 +133,9 @@ export function EntryForm({
           </h2>
           {type === "expense" && (
             <p className="muted">
-              {mode === "card-invoice"
-                ? "Informe o total e o vencimento da fatura. Não lance as mesmas compras novamente."
-                : "Escolha como quer lançar. Compras e faturas do cartão aparecem na mesma lista de despesas."}
+              {startAsCardPurchase
+                  ? "A compra fica vinculada a este cartão. As parcelas entram nos vencimentos calculados automaticamente."
+                  : "Escolha como quer lançar. Compras no cartão somam automaticamente na fatura."}
             </p>
           )}
         </div>
@@ -212,20 +148,18 @@ export function EntryForm({
           {type === "transfer"
             ? "Adicione outra conta bancária ou dinheiro para transferir entre contas."
             : mode !== "account"
-              ? "Cadastre um cartão antes de lançar compras ou faturas."
+              ? cards.length
+                ? "Selecione um cartão para continuar."
+                : "Cadastre um cartão antes de lançar compras."
               : "Cadastre uma conta bancária ou dinheiro antes de continuar."}
         </p>
       )}
       <form
         className="grid-form"
-        onSubmit={(event) =>
-          type === "expense" && mode === "card-invoice"
-            ? void submitInvoice(event)
-            : onSubmit(event, type, account)
-        }
-        key={invoice?.id ?? editing?.id ?? "new-entry"}
+        onSubmit={(event) => onSubmit(event, type, account)}
+        key={editing?.id ?? "new-entry"}
       >
-        {!fixedType && !invoice && (
+        {!fixedType && !startAsCardPurchase && (
           <fieldset className="entry-type-choice">
             <legend>O que aconteceu?</legend>
             <div className="choice-buttons">
@@ -243,7 +177,9 @@ export function EntryForm({
             </div>
           </fieldset>
         )}
-        {type === "expense" && !invoice && !editing && (
+        {type === "expense" &&
+          !editing &&
+          !startAsCardPurchase && (
           <fieldset className="entry-type-choice expense-mode-choice">
             <legend>Como quer lançar esta despesa?</legend>
             <div className="choice-buttons">
@@ -265,27 +201,13 @@ export function EntryForm({
               >
                 Compra no cartão
               </button>
-              <button
-                type="button"
-                className={mode === "card-invoice" ? "choice active" : "choice"}
-                aria-pressed={mode === "card-invoice"}
-                onClick={() => changeMode("card-invoice")}
-              >
-                Fatura fechada
-              </button>
             </div>
-            {mode === "card-invoice" && (
-              <small>
-                Informe o total da fatura uma vez. Não lance também as compras
-                individuais desse cartão e mês.
-              </small>
-            )}
           </fieldset>
         )}
         <label>
-          {type === "expense" && mode === "card-invoice"
-            ? "Valor total da fatura (R$)"
-            : "Valor (R$)"}
+          {type === "expense" && mode === "card-purchase"
+              ? "Valor a parcelar (R$)"
+              : "Valor (R$)"}
           <input
             name="amount"
             type="number"
@@ -293,85 +215,25 @@ export function EntryForm({
             min=".01"
             required
             defaultValue={
-              invoice
-                ? invoice.total / 100
-                : editing
-                  ? editing.amount / 100
-                  : undefined
+              editing ? editing.amount / 100 : undefined
             }
           />
         </label>
-        {type === "expense" && mode === "card-invoice" ? (
-          <>
-            <label>
-              Cartão
-              <select
-                required
-                value={account}
-                disabled={!!invoice}
-                onChange={(event) => {
-                  const id = event.target.value;
-                  setAccount(id);
-                  const selected = cards.find((item) => item.id === id);
-                  if (selected)
-                    setDueDateValue(dueDate(competence, selected.due));
-                }}
-              >
-                <option value="">Selecione o cartão</option>
-                {cards.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Mês da fatura
-              <input
-                name="competence"
-                type="month"
-                required
-                value={competence}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setCompetence(value);
-                  const selected = cards.find((item) => item.id === account);
-                  if (selected && value)
-                    setDueDateValue(dueDate(value, selected.due));
-                }}
-              />
-            </label>
-            <label>
-              Vencimento
-              <input
-                name="dueDate"
-                type="date"
-                required
-                value={dueDateValue}
-                onChange={(event) => setDueDateValue(event.target.value)}
-              />
-            </label>
-            {!invoice && (
-              <label className="check-label">
-                <input name="repeat" type="checkbox" />
-                Criar previsão desse valor para os próximos meses
-              </label>
-            )}
-            {invoice?.recurrenceId && (
-              <p className="muted">
-                Esta alteração vale apenas para este mês; as próximas previsões
-                ficam como estão.
-              </p>
-            )}
-          </>
-        ) : (
-          <>
+        {type === "expense" && mode === "card-purchase" && (
+          <small className="form-hint">
+            Se a compra já começou, informe apenas o valor das parcelas que
+            faltam. Cada parcela soma na fatura do seu vencimento.
+          </small>
+        )}
+        <>
             <label>
               {type === "income"
                 ? "Recebido em"
                 : type === "transfer"
                   ? "Transferido em"
-                  : "Data da despesa"}
+                  : mode === "card-purchase"
+                    ? "Data da compra"
+                    : "Data da despesa"}
               <input
                 name="date"
                 type="date"
@@ -389,6 +251,7 @@ export function EntryForm({
               <select
                 required
                 value={account}
+                disabled={startAsCardPurchase && !!invoiceCardId}
                 onChange={(event) => setAccount(event.target.value)}
               >
                 <option value="">Selecione</option>
@@ -460,16 +323,13 @@ export function EntryForm({
                 }
               />
             </label>
-          </>
-        )}
+        </>
         <div className="form-actions">
           <button disabled={!canSubmit}>
-            {invoice
-              ? "Salvar fatura"
-              : editing
+            {editing
                 ? "Salvar alterações"
-                : type === "expense" && mode === "card-invoice"
-                  ? "Salvar fatura"
+                : startAsCardPurchase
+                  ? "Salvar compra"
                   : type === "expense"
                     ? "Salvar despesa"
                     : type === "income"

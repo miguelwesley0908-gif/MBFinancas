@@ -700,6 +700,27 @@
 .invoice-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
+.invoice-purchase-details {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+  padding-left: 45px;
+  color: #65766a;
+  font-size: 12px;
+}
+.invoice-purchase-details > small {
+  color: #315942;
+  font-weight: 650;
+}
+.invoice-purchase-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.invoice-purchase-details strong {
+  flex: 0 0 auto;
+  color: #204d3b;
+}
 .invoice-actions {
   grid-column: 1 / -1;
   justify-content: flex-start;

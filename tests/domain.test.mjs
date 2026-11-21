@@ -14,8 +14,8 @@ import {
   reviseOccurrence,
   setRecurrenceStatus,
   settleOccurrence,
-  invoiceForecasts,
   expenseTotalForMonth,
+  projectedExpenseTotalForMonth,
 } from "../src/domain.ts";
 const card = {
   id: "c",
@@ -54,8 +54,15 @@ test("600 em 3x gera parcelas que somam exatamente a compra", () =>
   ]));
 test("após fechamento vai para fatura seguinte", () =>
   assert.equal(schedule(100, 1, "2026-11-21", card)[0].date, "2027-01-05"));
-test("no dia de fechamento pertence à fatura corrente", () =>
-  assert.equal(schedule(100, 1, "2026-11-20", card)[0].date, "2026-12-05"));
+test("o dia de fechamento inicia a próxima fatura", () =>
+  assert.equal(schedule(100, 1, "2026-11-20", card)[0].date, "2027-01-05"));
+test("cartão com fechamento dia 13 e vencimento dia 20 respeita a virada", () => {
+  const cycle = { ...card, closing: 13, due: 20 };
+  assert.equal(schedule(100, 1, "2026-11-12", cycle)[0].date, "2026-11-20");
+  assert.equal(schedule(100, 1, "2026-11-13", cycle)[0].date, "2026-12-20");
+  assert.equal(schedule(100, 1, "2026-12-12", cycle)[0].date, "2026-12-20");
+  assert.equal(schedule(100, 1, "2026-12-13", cycle)[0].date, "2027-01-20");
+});
 test("centavos residuais ficam na última parcela", () =>
   assert.deepEqual(
     schedule(10000, 3, "2026-11-19", card).map((p) => p.amount),
@@ -63,7 +70,7 @@ test("centavos residuais ficam na última parcela", () =>
   ));
 test("fevereiro e virada de ano respeitam últimos dias", () =>
   assert.equal(
-    schedule(100, 1, "2027-01-31", { ...card, closing: 31, due: 31 })[0].date,
+    schedule(100, 1, "2027-01-30", { ...card, closing: 31, due: 31 })[0].date,
     "2027-02-28",
   ));
 test("pagamento diminui banco e dívida sem duplicar despesa", () => {
@@ -276,7 +283,7 @@ test("marcar recorrência em conta como paga cria saída efetiva sem duplicar", 
   validate(paid);
 });
 
-test("fatura manual usa total informado e pagamento parcial atualiza conta e saldo do cartão", () => {
+test("fatura antiga paga preserva o histórico financeiro", () => {
   const invoiceRecurrence = {
     id: "ir1",
     cardId: "c",
@@ -320,12 +327,12 @@ test("fatura manual usa total informado e pagamento parcial atualiza conta e sal
     invoices(paid).find((item) => item.source === "manual").paid,
     50000,
   );
-  assert.equal(expenseTotalForMonth(paid, "2026-11"), 200000);
-  assert.equal(expenseTotalForMonth(paid, "2026-12"), 0);
+  assert.equal(expenseTotalForMonth(paid, "2026-11"), 0);
+  assert.equal(expenseTotalForMonth(paid, "2026-12"), 200000);
   validate(paid);
 });
 
-test("faturas recorrentes são previsões até confirmação e uma edição mensal não altera a série", () => {
+test("previsões antigas de valor cheio não geram novas faturas", () => {
   const plan = {
     id: "ir1",
     cardId: "c",
@@ -337,7 +344,8 @@ test("faturas recorrentes são previsões até confirmação e uma edição mens
     status: "active",
   };
   const data = household({ invoiceRecurrences: [plan] });
-  assert.equal(invoiceForecasts(data, "2026-12")[0].date, "2027-01-15");
+  assert.equal(invoices(data).length, 0);
+  assert.equal(projectedExpenseTotalForMonth(data, "2027-01"), 0);
   const confirmed = {
     id: "mi-dec",
     cardId: "c",
@@ -347,71 +355,157 @@ test("faturas recorrentes são previsões até confirmação e uma edição mens
     recurrenceId: "ir1",
   };
   const next = { ...data, manualInvoices: [confirmed] };
-  assert.equal(invoiceForecasts(next, "2026-12").length, 0);
-  assert.equal(invoiceForecasts(next, "2027-01")[0].total, 150000);
+  assert.equal(expenseTotalForMonth(next, "2027-01"), 173000);
   assert.equal(validate(next).manualInvoices[0].total, 173000);
 });
 
-test("não mistura compras recorrentes planejadas com fatura manual e rejeita fatura duplicada", () => {
-  const subscription = { ...recurrence, account: "c" };
-  const plan = {
-    id: "ir1",
-    cardId: "c",
-    amount: 3900,
-    startMonth: "2026-11",
-    endMonth: null,
-    dueDay: 15,
-    status: "active",
+test("compras do mesmo ciclo formam uma única fatura sem valor manual", () => {
+  const cycle = { ...card, closing: 13, due: 20 };
+  const first = {
+    ...purchase,
+    id: "first-cycle",
+    amount: 15000,
+    date: "2026-11-14",
+    installments: 1,
+    schedule: schedule(15000, 1, "2026-11-14", cycle),
+  };
+  const second = {
+    ...purchase,
+    id: "second-cycle",
+    amount: 20000,
+    date: "2026-11-19",
+    installments: 1,
+    schedule: schedule(20000, 1, "2026-11-19", cycle),
   };
   const data = household({
-    recurrences: [subscription],
-    invoiceRecurrences: [plan],
+    accounts: [bank, cycle],
+    entries: [first, second],
   });
-  assert.equal(invoiceForecasts(data, "2026-12")[0].total, 3900);
-  assert.equal(expenseTotalForMonth(data, "2026-12"), 0);
-  const invoice = {
+  const bills = invoices(data);
+  assert.equal(bills.length, 1);
+  assert.equal(bills[0].date, "2026-12-20");
+  assert.equal(bills[0].total, 35000);
+  assert.equal(bills[0].purchaseDetails.length, 2);
+  assert.equal(projectedExpenseTotalForMonth(data, "2026-12"), 35000);
+  assert.equal(expenseTotalForMonth(data, "2026-12"), 35000);
+  validate(data);
+  const payment = {
+    id: "payment-cycle", type: "transfer", amount: 35000,
+    date: "2026-11-20", account: "b", destination: "c", category: "",
+    description: "Pagamento", installments: 1, invoice: bills[0].key, schedule: [],
+  };
+  const paid = { ...data, entries: [...data.entries, payment] };
+  assert.equal(invoices(paid)[0].paid, 35000);
+  const more = {
+    ...purchase,
+    id: "after-payment",
+    amount: 10000,
+    date: "2026-11-20",
+    installments: 1,
+    schedule: schedule(10000, 1, "2026-11-20", cycle),
+  };
+  const reopened = { ...paid, entries: [...paid.entries, more] };
+  assert.equal(invoices(reopened).length, 1);
+  assert.equal(invoices(reopened)[0].total, 45000);
+  assert.equal(invoices(reopened)[0].paid, 35000);
+  assert.equal(expenseTotalForMonth(reopened, "2026-12"), 45000);
+  validate(reopened);
+});
+
+test("compra de 150 soma à fatura antiga aberta de 1300 e só conta uma vez", () => {
+  const cycle = { ...card, closing: 13, due: 20 };
+  const extra = {
+    ...purchase,
+    id: "extra",
+    amount: 15000,
+    date: "2026-11-14",
+    installments: 1,
+    schedule: schedule(15000, 1, "2026-11-14", cycle),
+  };
+  const manual = {
     id: "mi",
     cardId: "c",
     competence: "2026-11",
-    total: 50000,
-    dueDate: "2026-12-15",
-    recurrenceId: "ir1",
+    total: 130000,
+    dueDate: "2026-12-20",
+    recurrenceId: null,
   };
-  const confirmed = { ...data, manualInvoices: [invoice] };
-  assert.equal(invoiceForecasts(confirmed, "2026-11").length, 0);
-  assert.equal(expenseTotalForMonth(confirmed, "2026-11"), 50000);
-  assert.equal(expenseTotalForMonth(confirmed, "2026-12"), 0);
-  assert.throws(
-    () =>
-      validate({
-        ...data,
-        manualInvoices: [invoice, { ...invoice, id: "mi2" }],
-      }),
-    /competência|Fatura/,
-  );
-  assert.throws(
-    () =>
-      validate({
-        ...data,
-        invoiceRecurrences: [
-          plan,
-          { ...plan, id: "ir2", startMonth: "2026-12" },
-        ],
-      }),
-    /sobrepõem/,
-  );
-  assert.throws(
-    () =>
-      validate(
-        household({
-          entries: [purchase],
-          manualInvoices: [
-            { ...invoice, competence: "2026-12", recurrenceId: null },
-          ],
-        }),
-      ),
-    /compras lançadas/,
-  );
+  const raw = household({
+    accounts: [bank, cycle],
+    entries: [extra],
+    manualInvoices: [manual],
+  });
+  const data = upgradeData(validate(raw));
+  assert.equal(invoices(data).length, 1);
+  assert.equal(invoices(data)[0].total, 145000);
+  assert.equal(expenseTotalForMonth(data, "2026-12"), 145000);
+  assert.equal(projectedExpenseTotalForMonth(data, "2026-12"), 145000);
+  const payment = {
+    id: "pay-extra",
+    type: "transfer",
+    amount: 145000,
+    date: "2026-11-20",
+    account: "b",
+    destination: "c",
+    category: "",
+    description: "Pagamento da fatura",
+    installments: 1,
+    invoice: "manual:mi",
+    schedule: [],
+  };
+  const paid = { ...data, entries: [...data.entries, payment] };
+  validate(paid);
+  assert.equal(invoices(paid)[0].total, 145000);
+  assert.equal(invoices(paid)[0].paid, 145000);
+  assert.equal(expenseTotalForMonth(paid, "2026-12"), 145000);
+  assert.equal(invoices({ ...data, manualInvoices: [] })[0].total, 15000);
+});
+
+test("fatura antiga já paga não ganha de novo as compras existentes", () => {
+  const cycle = { ...card, closing: 13, due: 20 };
+  const detail = {
+    ...purchase,
+    id: "detail",
+    amount: 15000,
+    date: "2026-11-14",
+    installments: 1,
+    schedule: schedule(15000, 1, "2026-11-14", cycle),
+  };
+  const manual = {
+    id: "mi-old",
+    cardId: "c",
+    competence: "2026-11",
+    total: 130000,
+    dueDate: "2026-12-20",
+    recurrenceId: null,
+  };
+  const raw = household({
+    accounts: [bank, cycle],
+    manualInvoices: [manual],
+    entries: [detail, {
+      id: "old-payment", type: "transfer", amount: 130000,
+      date: "2026-11-20", account: "b", destination: "c", category: "",
+      description: "Pagamento", installments: 1, invoice: "manual:mi-old", schedule: [],
+    }],
+  });
+  const data = upgradeData(validate(raw));
+  assert.equal(data.manualInvoices[0].purchaseBaselineTotal, 15000);
+  assert.equal(invoices(data)[0].total, 130000);
+  assert.equal(invoices(data)[0].paid, 130000);
+  const later = {
+    ...purchase,
+    id: "later-detail",
+    amount: 15000,
+    date: "2026-11-19",
+    installments: 1,
+    schedule: schedule(15000, 1, "2026-11-19", cycle),
+  };
+  const reopened = upgradeData({ ...data, entries: [...data.entries, later] });
+  assert.equal(reopened.manualInvoices[0].purchaseBaselineTotal, 15000);
+  assert.equal(invoices(reopened)[0].total, 145000);
+  assert.equal(invoices(reopened)[0].paid, 130000);
+  assert.equal(expenseTotalForMonth(reopened, "2026-12"), 145000);
+  validate(reopened);
 });
 
 test("migração aditiva aceita registros antigos e acrescenta coleções vazias", () => {

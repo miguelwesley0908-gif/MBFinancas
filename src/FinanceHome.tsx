@@ -10,7 +10,6 @@ import {
   expenseTotalForMonth,
   initial,
   invoices,
-  invoiceForecasts,
   money,
   nextUnsettledOccurrence,
   occurrenceForMonth,
@@ -21,13 +20,13 @@ import {
   settleOccurrence,
   today,
   uid,
+  upgradeData,
   type Account,
   type Data,
   type Entry,
   type ExpenseOccurrence,
   type ExpenseRecurrence,
   type Group,
-  type InvoiceRecurrence,
   type InvoiceView,
   type ManualInvoice,
 } from "./domain";
@@ -47,7 +46,6 @@ import { RecurrenceForm } from "./components/RecurrenceForm";
 type Modal =
   | "menu"
   | "invoices"
-  | "invoice-entry"
   | "expense"
   | "income"
   | "transfer"
@@ -145,9 +143,6 @@ export function FinanceHome({
   const [modal, setModal] = useState<Modal | null>(null);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [editingInvoice, setEditingInvoice] = useState<ManualInvoice | null>(
-    null,
-  );
   const [returnToInvoices, setReturnToInvoices] = useState(false);
   const [newInvoiceCardId, setNewInvoiceCardId] = useState("");
   const [editingRecurrence, setEditingRecurrence] =
@@ -203,20 +198,15 @@ export function FinanceHome({
   );
   const invoicesForMonth = allInvoices.filter(
     (invoice) =>
-      paymentKeysThisMonth.has(invoice.key) ||
+      invoice.date.slice(0, 7) === month ||
+      (invoice.paymentKeys ?? [invoice.key]).some((key) =>
+        paymentKeysThisMonth.has(key),
+      ) ||
       (invoice.paid < invoice.total && invoice.date.slice(0, 7) <= month),
   );
-  const forecastsDueThisMonth = [0, 1, 2]
-    .flatMap((offset) => invoiceForecasts(data, monthOffset(month, -offset)))
-    .filter((invoice) => invoice.date.slice(0, 7) === month);
-  const invoiceBills = [
-    ...new Map(
-      [...invoicesForMonth, ...forecastsDueThisMonth].map((invoice) => [
-        invoice.key,
-        invoice,
-      ]),
-    ).values(),
-  ].sort((a, b) => a.date.localeCompare(b.date));
+  const invoiceBills = invoicesForMonth.sort((a, b) =>
+    a.date.localeCompare(b.date),
+  );
   const monthlyIncome = monthlyEntries
     .filter((entry) => entry.type === "income")
     .reduce((sum, entry) => sum + entry.amount, 0);
@@ -229,61 +219,29 @@ export function FinanceHome({
       (sum, invoice) => sum + Math.max(0, invoice.total - invoice.paid),
       0,
     );
-  const pendingInvoiceRows = allInvoices
-    .filter(
-      (invoice) =>
-        invoice.paid === 0 &&
-        invoice.date.slice(0, 7) <= month &&
-        (invoice.source !== "manual" ||
-          !data.manualInvoices.some(
-            (record) => record.id === invoice.invoiceId && record.archived,
-          )),
-    )
-    .map((invoice) => ({
-      kind: "invoice" as const,
-      date: invoice.date,
-      invoice,
-    }));
-  const visibleRows = [
-    ...monthlyEntries.map((entry) => ({
-      kind: "entry" as const,
-      date: entry.date,
-      entry,
-    })),
-    ...pendingInvoiceRows,
-  ]
+  const visibleRows = monthlyEntries
+    .map((entry) => ({ kind: "entry" as const, date: entry.date, entry }))
     .filter((row) => {
       const entryDestination =
-        row.kind === "entry" && row.entry.type === "transfer"
+        row.entry.type === "transfer"
           ? data.accounts.find(
               (account) => account.id === row.entry.destination,
             )
           : undefined;
       const entryTitle =
-        row.kind === "invoice"
-          ? `Fatura · ${row.invoice.card.name}`
-          : row.kind === "entry" &&
-              row.entry.type === "transfer" &&
-              row.entry.invoice
-            ? `Pagamento da fatura · ${entryDestination?.name ?? "Cartão"}`
-            : row.kind === "entry"
-              ? row.entry.description
-              : "";
+        row.entry.type === "transfer" && row.entry.invoice
+          ? `Pagamento da fatura · ${entryDestination?.name ?? "Cartão"}`
+          : row.entry.description;
       const categoryName =
-        row.kind === "entry"
-          ? (data.categories.find(
-              (category) => category.id === row.entry.category,
-            )?.name ?? "")
-          : "";
+        data.categories.find((category) => category.id === row.entry.category)
+          ?.name ?? "";
       const text = `${entryTitle} ${categoryName} ${entryDestination?.name ?? ""}`;
-      const type = row.kind === "entry" ? row.entry.type : "expense";
-      const category = row.kind === "entry" ? row.entry.category : "";
+      const type = row.entry.type;
+      const category = row.entry.category;
       const matchesAccount =
-        row.kind === "entry"
-          ? row.entry.account === filterAccount ||
-            (row.entry.type === "transfer" &&
-              row.entry.destination === filterAccount)
-          : row.invoice.card.id === filterAccount;
+        row.entry.account === filterAccount ||
+        (row.entry.type === "transfer" &&
+          row.entry.destination === filterAccount);
       return (
         text
           .toLocaleLowerCase("pt-BR")
@@ -310,7 +268,6 @@ export function FinanceHome({
     setReturnToInvoices(false);
     setEditingEntry(null);
     setEditingAccount(null);
-    setEditingInvoice(null);
     setEditingRecurrence(null);
     setNewInvoiceCardId("");
     setMessage("");
@@ -321,7 +278,6 @@ export function FinanceHome({
     setModal(returnToInvoiceList ? "invoices" : null);
     setEditingEntry(null);
     setEditingAccount(null);
-    setEditingInvoice(null);
     setEditingRecurrence(null);
     setSelectedOccurrence(null);
     setNewInvoiceCardId("");
@@ -359,6 +315,10 @@ export function FinanceHome({
         type === "expense" && account.type === "card"
           ? Number(field(form, "installments"))
           : 1;
+      const nextSchedule =
+        type === "expense" && account.type === "card"
+          ? schedule(amount, count, date, account)
+          : [];
       const entry: Entry = {
         id: editingEntry?.id ?? uid(),
         type,
@@ -370,10 +330,7 @@ export function FinanceHome({
         description: field(form, "description").trim(),
         installments: count,
         invoice: "",
-        schedule:
-          type === "expense" && account.type === "card"
-            ? schedule(amount, count, date, account)
-            : [],
+        schedule: nextSchedule,
         recurrenceId: editingEntry?.recurrenceId,
         occurrenceDate: editingEntry?.occurrenceDate,
       };
@@ -383,7 +340,9 @@ export function FinanceHome({
           (invoice) =>
             invoice.paid > 0 &&
             editingEntry.schedule.some(
-              (part) => invoice.key === editingEntry.account + "|" + part.date,
+              (part) =>
+                invoice.card.id === editingEntry.account &&
+                    invoice.date.slice(0, 7) === part.date.slice(0, 7),
             ),
         )
       )
@@ -413,7 +372,9 @@ export function FinanceHome({
         (invoice) =>
           invoice.paid > 0 &&
           entry.schedule.some(
-            (part) => invoice.key === entry.account + "|" + part.date,
+            (part) =>
+              invoice.card.id === entry.account &&
+              invoice.date.slice(0, 7) === part.date.slice(0, 7),
           ),
       )
     ) {
@@ -515,107 +476,6 @@ export function FinanceHome({
     return saved;
   }
 
-  async function saveManualInvoice(invoice: ManualInvoice, repeat: boolean) {
-    const duplicate = data.manualInvoices.find(
-      (item) =>
-        item.id !== invoice.id &&
-        item.cardId === invoice.cardId &&
-        item.competence === invoice.competence,
-    );
-    if (duplicate) {
-      if (!editingInvoice) {
-        setEditingEntry(null);
-        setEditingInvoice({ ...duplicate, archived: false });
-        setMessage(
-          "Esta fatura já existe. Abri o registro existente para edição.",
-        );
-      } else {
-        setMessage(
-          "Já existe outra fatura para este cartão e mês. Escolha um mês diferente.",
-        );
-      }
-      return false;
-    }
-    if (
-      invoices(data).some(
-        (item) =>
-          item.source === "purchase" &&
-          item.card.id === invoice.cardId &&
-          item.competence === invoice.competence,
-      )
-    ) {
-      setMessage(
-        "Já existem compras lançadas para este cartão e mês. Para evitar somar duas vezes, use o total calculado ou remova os lançamentos duplicados.",
-      );
-      return false;
-    }
-    const prior =
-      editingInvoice ??
-      data.manualInvoices.find(
-        (item) =>
-          item.cardId === invoice.cardId &&
-          item.competence === invoice.competence,
-      );
-    if (
-      prior &&
-      data.entries.some(
-        (entry) =>
-          entry.type === "transfer" && entry.invoice === "manual:" + prior.id,
-      ) &&
-      prior.cardId !== invoice.cardId
-    ) {
-      setMessage(
-        "Não é possível trocar o cartão de uma fatura que já recebeu pagamentos.",
-      );
-      return false;
-    }
-    const existingPlan = data.invoiceRecurrences.find(
-      (plan) =>
-        plan.cardId === invoice.cardId &&
-        plan.status === "active" &&
-        invoice.competence >= plan.startMonth &&
-        (!plan.endMonth || invoice.competence <= plan.endMonth),
-    );
-    let recurrenceId = invoice.recurrenceId ?? existingPlan?.id ?? null;
-    let invoiceRecurrences = data.invoiceRecurrences;
-    if (repeat) {
-      recurrenceId = existingPlan?.id ?? uid();
-      const offset =
-        (Number(invoice.dueDate.slice(0, 4)) -
-          Number(invoice.competence.slice(0, 4))) *
-          12 +
-        Number(invoice.dueDate.slice(5, 7)) -
-        Number(invoice.competence.slice(5, 7));
-      const plan: InvoiceRecurrence = {
-        id: recurrenceId,
-        cardId: invoice.cardId,
-        amount: invoice.total,
-        startMonth: invoice.competence,
-        endMonth: null,
-        dueDay: Number(invoice.dueDate.slice(8, 10)),
-        dueMonthOffset: Math.max(0, Math.min(2, offset)),
-        status: "active",
-      };
-      invoiceRecurrences = [
-        ...invoiceRecurrences.filter((item) => item.id !== plan.id),
-        plan,
-      ];
-    }
-    const nextInvoice = { ...invoice, recurrenceId };
-    const saved = await save({
-      ...data,
-      invoiceRecurrences,
-      manualInvoices: [
-        ...data.manualInvoices.filter((item) => item.id !== invoice.id),
-        nextInvoice,
-      ],
-    });
-    if (saved) {
-      setMessage("Fatura salva.");
-    }
-    return saved;
-  }
-
   async function payInvoice(
     event: FormEvent<HTMLFormElement>,
     invoice: InvoiceView,
@@ -649,7 +509,12 @@ export function FinanceHome({
         invoice: invoice.key,
         schedule: [],
       };
-      if (await save({ ...data, entries: [...data.entries, payment] }))
+      if (
+        await save({
+          ...upgradeData(data),
+          entries: [...data.entries, payment],
+        })
+      )
         setMessage("Pagamento da fatura registrado.");
     } catch (error) {
       setMessage((error as Error).message);
@@ -784,35 +649,6 @@ export function FinanceHome({
       );
   }
 
-  async function invoicePlanAction(
-    plan: InvoiceRecurrence,
-    action: "pause" | "resume" | "end",
-  ) {
-    const invoiceRecurrences = data.invoiceRecurrences.map((item) =>
-      item.id !== plan.id
-        ? item
-        : action === "end"
-          ? {
-              ...item,
-              status: "ended" as const,
-              endMonth: month < item.startMonth ? item.startMonth : month,
-            }
-          : {
-              ...item,
-              status:
-                action === "pause" ? ("paused" as const) : ("active" as const),
-            },
-    );
-    if (await save({ ...data, invoiceRecurrences }))
-      setMessage(
-        action === "end"
-          ? "Previsão encerrada."
-          : action === "pause"
-            ? "Previsão pausada."
-            : "Previsão reativada.",
-      );
-  }
-
   async function occurrenceAction(
     occurrence: ExpenseOccurrence,
     recurrence: ExpenseRecurrence,
@@ -923,16 +759,22 @@ export function FinanceHome({
   }
 
   async function deleteManualInvoice(invoice: ManualInvoice) {
-    const invoiceKey = "manual:" + invoice.id;
-    if (
-      data.entries.some(
-        (entry) => entry.type === "transfer" && entry.invoice === invoiceKey,
-      )
-    ) {
+    const invoiceView = invoices(data).find(
+      (item) => item.invoiceId === invoice.id,
+    );
+    if (invoiceView && invoiceView.paid > 0) {
       await archiveManualInvoice(invoice);
       return;
     }
-    if (!confirm("Excluir esta fatura?")) return;
+    const hasPurchaseDetails = !!invoiceView?.purchaseDetails?.length;
+    if (
+      !confirm(
+        hasPurchaseDetails
+          ? "Excluir o total informado? As compras detalhadas serão mantidas e a fatura será recalculada pelas parcelas."
+          : "Excluir esta fatura?",
+      )
+    )
+      return;
     if (
       await save({
         ...data,
@@ -1110,15 +952,6 @@ export function FinanceHome({
       setEditingEntry(entry);
       setModal("edit-entry");
     },
-    onEditInvoice: (invoice: ManualInvoice) => {
-      setEditingEntry(null);
-      setEditingInvoice(invoice);
-      setModal("expense");
-    },
-    onDeleteInvoice: (invoice: ManualInvoice) =>
-      void deleteManualInvoice(invoice),
-    onPayInvoice: (event: FormEvent<HTMLFormElement>, invoice: InvoiceView) =>
-      void payInvoice(event, invoice),
     onRemoveEntry: (entry: Entry) => void removeEntry(entry),
   };
   const recurrenceHandlers = {
@@ -1262,11 +1095,11 @@ export function FinanceHome({
                       <dd>{money(data.income)}</dd>
                     </div>
                     <div>
-                      <dt>Despesas projetadas</dt>
+                      <dt>Gastos previstos</dt>
                       <dd>{money(projection.expenses)}</dd>
                     </div>
                     <div className="projection-margin">
-                      <dt>Margem projetada</dt>
+                      <dt>Quanto deve sobrar</dt>
                       <dd
                         className={
                           data.income - projection.expenses < 0
@@ -1298,21 +1131,23 @@ export function FinanceHome({
           <section className="actual-summary" aria-labelledby="actual-title">
             <div className="section-title">
               <div>
-                <h2 id="actual-title">Realizado no mês selecionado</h2>
-                <small>Somente receitas e despesas já registradas.</small>
+                <h2 id="actual-title">Gastos e receitas do mês</h2>
+                <small>
+                  Gastos no cartão entram uma vez, no mês do vencimento da fatura.
+                </small>
               </div>
             </div>
             <div className="actual-metric-grid">
               <article className="metric income-metric">
-                <span>Receitas registradas</span>
+                <span>Receitas recebidas</span>
                 <strong>{money(monthlyIncome)}</strong>
               </article>
               <article className="metric expense-metric">
-                <span>Despesas registradas</span>
+                <span>Gastos realizados</span>
                 <strong>{money(monthlyExpenses)}</strong>
               </article>
               <article className="metric result-metric">
-                <span>Resultado realizado</span>
+                <span>Resultado do mês</span>
                 <strong
                   className={
                     monthlyIncome - monthlyExpenses < 0
@@ -1328,9 +1163,9 @@ export function FinanceHome({
 
           <div className="dashboard-note">
             <strong>
-              Faturas registradas em aberto: {money(outstandingInvoices)}
+              Faturas em aberto: {money(outstandingInvoices)}
             </strong>
-            <span>Despesas de cartão entram pela competência da fatura.</span>
+            <span>Compras aparecem nas movimentações; o total considera a fatura uma só vez.</span>
           </div>
           <div className="overview-grid">
             <MovementsSection
@@ -1397,9 +1232,6 @@ export function FinanceHome({
             onRecurrenceAction={(recurrence, action) =>
               void recurrenceAction(recurrence, action)
             }
-            onInvoicePlanAction={(plan, action) =>
-              void invoicePlanAction(plan, action)
-            }
           />
         </>
       )}
@@ -1464,40 +1296,16 @@ export function FinanceHome({
               setReturnToInvoices(false);
               closeModal();
             }}
-            onAddInvoice={() => {
+            onAddPurchase={(invoice) => {
               setReturnToInvoices(true);
               setEditingEntry(null);
-              setEditingInvoice(null);
-              setNewInvoiceCardId("");
-              setModal("invoice-entry");
-            }}
-            onEditInvoice={(invoice) => {
-              setReturnToInvoices(true);
-              setEditingEntry(null);
-              setEditingInvoice(invoice);
+              setNewInvoiceCardId(invoice?.card.id ?? "");
               setModal("expense");
             }}
             onDeleteInvoice={(invoice) => void deleteManualInvoice(invoice)}
             onArchiveInvoice={(invoice) => void archiveManualInvoice(invoice)}
             onRestoreInvoice={(invoice) => void restoreManualInvoice(invoice)}
             onPayInvoice={(event, invoice) => void payInvoice(event, invoice)}
-            onConfirmForecast={(invoice) => {
-              setReturnToInvoices(true);
-              setEditingEntry(null);
-              setEditingInvoice(null);
-              setNewInvoiceCardId(invoice.card.id);
-              setModal("invoice-entry");
-            }}
-            onCancelForecast={(invoice) => {
-              const plan = data.invoiceRecurrences.find(
-                (item) => item.id === invoice.recurrenceId,
-              );
-              if (
-                plan &&
-                confirm("Encerrar esta previsão e os próximos meses?")
-              )
-                void invoicePlanAction(plan, "end");
-            }}
           />
         )}
         {modal === "menu" && (
@@ -1536,32 +1344,21 @@ export function FinanceHome({
           </section>
         )}
         {(modal === "expense" ||
-          modal === "invoice-entry" ||
           modal === "income" ||
           modal === "transfer" ||
           modal === "edit-entry") && (
           <EntryForm
-            key={`${modal}-${editingEntry?.id ?? editingInvoice?.id ?? newInvoiceCardId ?? "new"}`}
+            key={`${modal}-${editingEntry?.id ?? newInvoiceCardId ?? "new"}`}
             data={data}
             editing={editingEntry}
-            invoice={editingInvoice}
-            month={month}
             invoiceCardId={newInvoiceCardId}
-            startAsInvoice={modal === "invoice-entry"}
-            fixedType={
-              editingInvoice
-                ? "expense"
-                : modal === "invoice-entry"
-                  ? "expense"
-                  : modal === "edit-entry"
-                    ? editingEntry?.type
-                    : fixedEntryType
+            startAsCardPurchase={
+              modal === "expense" && returnToInvoices && !editingEntry
             }
+            fixedType={modal === "edit-entry" ? editingEntry?.type : fixedEntryType}
             onSubmit={(event, type, account) =>
               void submitEntry(event, type, account)
             }
-            onSaveInvoice={saveManualInvoice}
-            onError={setMessage}
             onCancel={closeModal}
           />
         )}

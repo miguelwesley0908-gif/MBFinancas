@@ -8,14 +8,11 @@ import {
   type Entry,
   type ExpenseOccurrence,
   type ExpenseRecurrence,
-  type InvoiceRecurrence,
   type InvoiceView,
   type ManualInvoice,
 } from "../domain";
 
-export type MovementRow =
-  | { kind: "entry"; date: string; entry: Entry }
-  | { kind: "invoice"; date: string; invoice: InvoiceView };
+export type MovementRow = { kind: "entry"; date: string; entry: Entry };
 
 const dateLabel = (value: string) => value.split("-").reverse().join("/");
 
@@ -33,12 +30,6 @@ type MovementsProps = {
   onFilterCategory: (value: string) => void;
   onFilterAccount: (value: string) => void;
   onEditEntry: (entry: Entry) => void;
-  onEditInvoice: (invoice: ManualInvoice) => void;
-  onDeleteInvoice: (invoice: ManualInvoice) => void;
-  onPayInvoice: (
-    event: FormEvent<HTMLFormElement>,
-    invoice: InvoiceView,
-  ) => void;
   onRemoveEntry: (entry: Entry) => void;
 };
 
@@ -56,9 +47,6 @@ export function MovementsSection({
   onFilterCategory,
   onFilterAccount,
   onEditEntry,
-  onEditInvoice,
-  onDeleteInvoice,
-  onPayInvoice,
   onRemoveEntry,
 }: MovementsProps) {
   const displayedRows = preview ? rows.slice(0, 5) : rows;
@@ -72,8 +60,8 @@ export function MovementsSection({
           </h2>
           {!preview && (
             <small>
-              Faturas sem pagamento aparecem pelo vencimento; pagamentos ficam
-              na data em que foram registrados.
+              Compras aparecem pela data da compra; pagamentos ficam na data
+              em que foram registrados.
             </small>
           )}
         </div>
@@ -136,133 +124,7 @@ export function MovementsSection({
         </div>
       )}
       <div className="compact-list">
-        {displayedRows.map((row) =>
-          row.kind === "invoice" ? (
-            <article
-              className="list-row invoice-list-row"
-              key={row.invoice.key}
-            >
-              <div className="list-main">
-                <span
-                  className={`list-icon ${row.invoice.source === "forecast" ? "forecast" : "card-icon"}`}
-                >
-                  ▤
-                </span>
-                <div>
-                  <strong>
-                    {row.invoice.source === "forecast"
-                      ? `Previsão · ${row.invoice.card.name}`
-                      : `Fatura · ${row.invoice.card.name}`}
-                  </strong>
-                  <small>
-                    {row.invoice.competence} · vence{" "}
-                    {dateLabel(row.invoice.date)}
-                    {row.invoice.source === "purchase"
-                      ? " · resumo das compras no cartão"
-                      : row.invoice.source === "manual"
-                        ? " · total informado"
-                        : " · valor previsto"}
-                  </small>
-                </div>
-              </div>
-              <div className="row-value">
-                <span>{money(row.invoice.total)}</span>
-                <small>
-                  {row.invoice.source === "forecast"
-                    ? "Previsão"
-                    : `Em aberto: ${money(Math.max(0, row.invoice.total - row.invoice.paid))}`}
-                </small>
-              </div>
-              <div className="invoice-actions">
-                {row.invoice.source === "forecast" ? (
-                  <span className="badge forecast-badge">Previsão</span>
-                ) : row.invoice.paid >= row.invoice.total ? (
-                  <span className="badge paid">Paga</span>
-                ) : (
-                  <details className="pay-details">
-                    <summary>Pagar fatura</summary>
-                    <form
-                      className="payment-form"
-                      onSubmit={(event) => onPayInvoice(event, row.invoice)}
-                    >
-                      <label>
-                        Conta usada
-                        <select name="source" required defaultValue="">
-                          <option value="" disabled>
-                            Selecione
-                          </option>
-                          {data.accounts
-                            .filter((account) => account.type !== "card")
-                            .map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.name}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      <label>
-                        Valor pago (R$)
-                        <input
-                          name="amount"
-                          type="number"
-                          min=".01"
-                          step=".01"
-                          max={
-                            Math.max(0, row.invoice.total - row.invoice.paid) /
-                            100
-                          }
-                          defaultValue={
-                            Math.max(0, row.invoice.total - row.invoice.paid) /
-                            100
-                          }
-                          required
-                        />
-                      </label>
-                      <label>
-                        Data do pagamento
-                        <input
-                          name="date"
-                          type="date"
-                          max={today()}
-                          defaultValue={today()}
-                          required
-                        />
-                      </label>
-                      <button>Registrar pagamento</button>
-                    </form>
-                  </details>
-                )}
-                {row.invoice.source === "manual" && (
-                  <>
-                    {data.manualInvoices
-                      .filter((item) => item.id === row.invoice.invoiceId)
-                      .map((record) => (
-                        <button
-                          key={record.id}
-                          className="ghost compact-button"
-                          onClick={() => onEditInvoice(record)}
-                        >
-                          Editar
-                        </button>
-                      ))}
-                    {row.invoice.paid === 0 && (
-                      <button
-                        className="ghost compact-button destructive"
-                        onClick={() => {
-                          const record = data.manualInvoices.find(
-                            (item) => item.id === row.invoice.invoiceId,
-                          );
-                          if (record) onDeleteInvoice(record);
-                        }}
-                      >
-                        Excluir
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </article>
-          ) : (
+        {displayedRows.map((row) => (
             <article className="list-row" key={row.entry.id}>
               <div className="list-main">
                 <span className={`list-icon ${row.entry.type}`}>
@@ -296,6 +158,12 @@ export function MovementsSection({
                     {data.accounts.find(
                       (account) => account.id === row.entry.account,
                     )?.name ?? "Conta removida"}
+                    {row.entry.type === "expense" &&
+                      data.accounts.find(
+                        (account) => account.id === row.entry.account,
+                      )?.type === "card" &&
+                      row.entry.schedule[0] &&
+                      ` · ${row.entry.installments > 1 ? `${row.entry.installments} parcelas · ` : ""}fatura ${dateLabel(row.entry.schedule[0].date)}`}
                     {row.entry.type === "transfer" && row.entry.invoice
                       ? " → " +
                         (data.accounts.find(
@@ -337,8 +205,7 @@ export function MovementsSection({
                 </div>
               </details>
             </article>
-          ),
-        )}
+        ))}
         {!rows.length && (
           <div className="empty">
             Nenhuma movimentação neste mês. Use “+ Adicionar” para registrar uma
@@ -728,8 +595,7 @@ type InvoicesProps = {
   data: Data;
   month: string;
   bills: InvoiceView[];
-  onAddInvoice: () => void;
-  onEditInvoice: (invoice: ManualInvoice) => void;
+  onAddPurchase: (invoice?: InvoiceView) => void;
   onDeleteInvoice: (invoice: ManualInvoice) => void;
   onArchiveInvoice: (invoice: ManualInvoice) => void;
   onRestoreInvoice: (invoice: ManualInvoice) => void;
@@ -737,8 +603,6 @@ type InvoicesProps = {
     event: FormEvent<HTMLFormElement>,
     invoice: InvoiceView,
   ) => void;
-  onConfirmForecast: (invoice: InvoiceView) => void;
-  onCancelForecast: (invoice: InvoiceView) => void;
   onClose?: () => void;
 };
 
@@ -746,14 +610,11 @@ export function InvoicesSection({
   data,
   month,
   bills,
-  onAddInvoice,
-  onEditInvoice,
+  onAddPurchase,
   onDeleteInvoice,
   onArchiveInvoice,
   onRestoreInvoice,
   onPayInvoice,
-  onConfirmForecast,
-  onCancelForecast,
   onClose,
 }: InvoicesProps) {
   const [showArchived, setShowArchived] = useState(false);
@@ -780,8 +641,8 @@ export function InvoicesSection({
         <div>
           <h2>Faturas de {month}</h2>
           <small>
-            Em aberto pelo vencimento; pagas pela data do pagamento. Previsões
-            não alteram saldo nem despesa.
+            As compras e parcelas do cartão formam o total da fatura pelo mês
+            do vencimento.
           </small>
         </div>
         <div className="actions">
@@ -790,8 +651,8 @@ export function InvoicesSection({
               Fechar
             </button>
           )}
-          <button className="text-button" onClick={onAddInvoice}>
-            + Fatura
+          <button className="text-button" onClick={() => onAddPurchase()}>
+            + Compra no cartão
           </button>
         </div>
       </div>
@@ -812,6 +673,15 @@ export function InvoicesSection({
                   (item) => item.id === invoice.invoiceId,
                 )
               : undefined;
+          const additionalPurchases = record
+            ? Math.max(
+                0,
+                (invoice.purchaseDetails ?? []).reduce(
+                  (sum, purchase) => sum + purchase.amount,
+                  0,
+                ) - (record.purchaseBaselineTotal ?? 0),
+              )
+            : 0;
           return (
             <article className="invoice-row" key={invoice.key}>
               <div className="invoice-heading">
@@ -828,7 +698,9 @@ export function InvoicesSection({
                       ? " · valor previsto"
                       : invoice.source === "purchase"
                         ? " · compras parceladas"
-                        : " · valor informado"}
+                        : invoice.paid > 0
+                          ? " · registro antigo com pagamento"
+                          : " · valor antigo e compras"}
                   </small>
                 </div>
               </div>
@@ -838,19 +710,42 @@ export function InvoicesSection({
               >
                 {status}
               </span>
-              {invoice.source === "manual" && (
+              {(!!record || !!invoice.purchaseDetails?.length) && (
+                <div className="invoice-purchase-details">
+                  {record && (
+                    <small>
+                      Valor antigo: {money(record.total)}
+                      {additionalPurchases > 0 &&
+                        ` · compras adicionais: ${money(additionalPurchases)}`}
+                    </small>
+                  )}
+                  {!!invoice.purchaseDetails?.length && (
+                    <small>Compras e parcelas incluídas</small>
+                  )}
+                  {invoice.purchaseDetails?.map((purchase) => (
+                    <div key={`${purchase.entryId}:${purchase.date}`}>
+                      <span>
+                        {purchase.description || "Compra no cartão"} · parcela{" "}
+                        {purchase.installmentNumber}/{purchase.installments}
+                      </span>
+                      <strong>{money(purchase.amount)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {invoice.source !== "forecast" && <div className="invoice-actions">
+                <button
+                  className="ghost compact-button"
+                  onClick={() => onAddPurchase(invoice)}
+                >
+                  Adicionar compra
+                </button>
+              </div>}
+              {invoice.source !== "forecast" && (
                 <div className="invoice-actions">
                   <small>
                     Pago {money(invoice.paid)} · resta {money(remaining)}
                   </small>
-                  {record && (
-                    <button
-                      className="ghost compact-button"
-                      onClick={() => onEditInvoice(record)}
-                    >
-                      Editar
-                    </button>
-                  )}
                   {remaining > 0 && (
                     <details className="pay-details">
                       <summary>Pagar</summary>
@@ -902,7 +797,7 @@ export function InvoicesSection({
                       </form>
                     </details>
                   )}
-                  {record && (
+                  {record && invoice.paid > 0 && (
                     <button
                       className="ghost compact-button"
                       onClick={() => onArchiveInvoice(record)}
@@ -915,32 +810,16 @@ export function InvoicesSection({
                       className="text-button destructive"
                       onClick={() => onDeleteInvoice(record)}
                     >
-                      Excluir
+                      Remover valor antigo
                     </button>
                   )}
-                </div>
-              )}
-              {invoice.source === "forecast" && (
-                <div className="invoice-actions">
-                  <button
-                    className="ghost compact-button"
-                    onClick={() => onConfirmForecast(invoice)}
-                  >
-                    Informar total
-                  </button>
-                  <button
-                    className="ghost compact-button destructive"
-                    onClick={() => onCancelForecast(invoice)}
-                  >
-                    Excluir previsão
-                  </button>
                 </div>
               )}
             </article>
           );
         })}
         {!activeBills.length && (
-          <div className="empty">Nenhuma fatura ou previsão para este mês.</div>
+          <div className="empty">Nenhuma compra no cartão para este mês.</div>
         )}
       </div>
       {!!archivedBills.length && (
@@ -1006,10 +885,6 @@ type PlanningProps = {
     recurrence: ExpenseRecurrence,
     action: "pause" | "resume" | "end" | "delete",
   ) => void;
-  onInvoicePlanAction: (
-    plan: InvoiceRecurrence,
-    action: "pause" | "resume" | "end",
-  ) => void;
 };
 
 export function PlanningSection({
@@ -1018,14 +893,13 @@ export function PlanningSection({
   onNewRecurrence,
   onEditRecurrence,
   onRecurrenceAction,
-  onInvoicePlanAction,
 }: PlanningProps) {
   return (
     <details id="planning" className="panel planning-panel">
       <summary>
         <span>
           <strong>Planejamento</strong>
-          <small>Despesas recorrentes, previsões dos cartões e orçamento</small>
+          <small>Despesas recorrentes e orçamento</small>
         </span>
         <span aria-hidden="true">＋</span>
       </summary>
@@ -1152,8 +1026,9 @@ export function PlanningSection({
             orçamento.
           </p>
         )}
-        <div className="planning-bottom">
-          <strong>Previsões dos cartões</strong>
+        {!!data.invoiceRecurrences.length && <div className="planning-bottom">
+          <strong>Previsões antigas de fatura</strong>
+          <small>Histórico preservado; esses valores não entram mais na projeção.</small>
           {data.invoiceRecurrences.map((plan) => (
             <div className="planning-row" key={plan.id}>
               <span>
@@ -1161,39 +1036,11 @@ export function PlanningSection({
                   data.accounts.find((account) => account.id === plan.cardId)
                     ?.name
                 }{" "}
-                · {money(plan.amount)} · desde {plan.startMonth} ·{" "}
-                {plan.status === "active"
-                  ? "Ativa"
-                  : plan.status === "paused"
-                    ? "Pausada"
-                    : "Encerrada"}
+                · {money(plan.amount)} · desde {plan.startMonth}
               </span>
-              <div className="actions">
-                {plan.status !== "ended" && (
-                  <button
-                    className="ghost compact-button"
-                    onClick={() =>
-                      onInvoicePlanAction(
-                        plan,
-                        plan.status === "active" ? "pause" : "resume",
-                      )
-                    }
-                  >
-                    {plan.status === "active" ? "Pausar" : "Reativar"}
-                  </button>
-                )}
-                {plan.status === "active" && (
-                  <button
-                    className="ghost compact-button"
-                    onClick={() => onInvoicePlanAction(plan, "end")}
-                  >
-                    Encerrar
-                  </button>
-                )}
-              </div>
             </div>
           ))}
-        </div>
+        </div>}
       </div>
     </details>
   );
